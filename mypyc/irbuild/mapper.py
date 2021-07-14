@@ -2,7 +2,7 @@
 
 from typing import Dict, Optional
 
-from mypy.nodes import FuncDef, TypeInfo, SymbolNode, ARG_STAR, ARG_STAR2
+from mypy.nodes import FuncDef, TypeInfo, SymbolNode, ArgKind, ARG_STAR, ARG_STAR2
 from mypy.types import (
     Instance, Type, CallableType, LiteralType, TypedDictType, UnboundType, PartialType,
     UninhabitedType, Overloaded, UnionType, TypeType, AnyType, NoneTyp, TupleType, TypeVarType,
@@ -12,7 +12,7 @@ from mypy.types import (
 from mypyc.ir.rtypes import (
     RType, RUnion, RTuple, RInstance, object_rprimitive, dict_rprimitive, tuple_rprimitive,
     none_rprimitive, int_rprimitive, float_rprimitive, str_rprimitive, bool_rprimitive,
-    list_rprimitive, set_rprimitive
+    list_rprimitive, set_rprimitive, range_rprimitive
 )
 from mypyc.ir.func_ir import FuncSignature, FuncDecl, RuntimeArg
 from mypyc.ir.class_ir import ClassIR
@@ -30,8 +30,8 @@ class Mapper:
 
     def __init__(self, group_map: Dict[str, Optional[str]]) -> None:
         self.group_map = group_map
-        self.type_to_ir = {}  # type: Dict[TypeInfo, ClassIR]
-        self.func_to_decl = {}  # type: Dict[SymbolNode, FuncDecl]
+        self.type_to_ir: Dict[TypeInfo, ClassIR] = {}
+        self.func_to_decl: Dict[SymbolNode, FuncDecl] = {}
 
     def type_to_rtype(self, typ: Optional[Type]) -> RType:
         if typ is None:
@@ -58,6 +58,8 @@ class Mapper:
                 return set_rprimitive
             elif typ.type.fullname == 'builtins.tuple':
                 return tuple_rprimitive  # Varying-length tuple
+            elif typ.type.fullname == 'builtins.range':
+                return range_rprimitive
             elif typ.type in self.type_to_ir:
                 inst = RInstance(self.type_to_ir[typ.type])
                 # Treat protocols as Union[protocol, object], so that we can do fast
@@ -108,7 +110,7 @@ class Mapper:
         # actually show up, so anything else is a bug somewhere.
         assert False, 'unexpected type %s' % type(typ)
 
-    def get_arg_rtype(self, typ: Type, kind: int) -> RType:
+    def get_arg_rtype(self, typ: Type, kind: ArgKind) -> RType:
         if kind == ARG_STAR:
             return tuple_rprimitive
         elif kind == ARG_STAR2:

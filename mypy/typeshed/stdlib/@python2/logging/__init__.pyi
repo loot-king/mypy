@@ -1,24 +1,8 @@
 import threading
 from _typeshed import StrPath
-from string import Template
 from time import struct_time
 from types import FrameType, TracebackType
-from typing import (
-    IO,
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    MutableMapping,
-    Optional,
-    Sequence,
-    Text,
-    Tuple,
-    Union,
-    overload,
-)
+from typing import IO, Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Sequence, Text, Tuple, Union, overload
 
 _SysExcInfoType = Union[Tuple[type, BaseException, Optional[TracebackType]], Tuple[None, None, None]]
 _ExcInfoType = Union[None, bool, _SysExcInfoType]
@@ -73,24 +57,13 @@ class Logger(Filterer):
     ) -> None: ...
     fatal = critical
     def log(
-        self,
-        level: int,
-        msg: Any,
-        *args: Any,
-        exc_info: _ExcInfoType = ...,
-        extra: Optional[Dict[str, Any]] = ...,
-        **kwargs: Any,
+        self, level: int, msg: Any, *args: Any, exc_info: _ExcInfoType = ..., extra: Optional[Dict[str, Any]] = ..., **kwargs: Any
     ) -> None: ...
     def exception(
         self, msg: Any, *args: Any, exc_info: _ExcInfoType = ..., extra: Optional[Dict[str, Any]] = ..., **kwargs: Any
     ) -> None: ...
     def _log(
-        self,
-        level: int,
-        msg: Any,
-        args: _ArgsType,
-        exc_info: Optional[_ExcInfoType] = ...,
-        extra: Optional[Dict[str, Any]] = ...,
+        self, level: int, msg: Any, args: _ArgsType, exc_info: Optional[_ExcInfoType] = ..., extra: Optional[Dict[str, Any]] = ...
     ) -> None: ...  # undocumented
     def filter(self, record: LogRecord) -> bool: ...
     def addHandler(self, hdlr: Handler) -> None: ...
@@ -210,13 +183,7 @@ class LoggerAdapter:
         self, msg: Any, *args: Any, exc_info: _ExcInfoType = ..., extra: Optional[Dict[str, Any]] = ..., **kwargs: Any
     ) -> None: ...
     def log(
-        self,
-        level: int,
-        msg: Any,
-        *args: Any,
-        exc_info: _ExcInfoType = ...,
-        extra: Optional[Dict[str, Any]] = ...,
-        **kwargs: Any,
+        self, level: int, msg: Any, *args: Any, exc_info: _ExcInfoType = ..., extra: Optional[Dict[str, Any]] = ..., **kwargs: Any
     ) -> None: ...
     def isEnabledFor(self, level: int) -> bool: ...
 

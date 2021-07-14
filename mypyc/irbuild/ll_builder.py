@@ -14,7 +14,8 @@ from typing import (
 
 from typing_extensions import Final
 
-from mypy.nodes import ARG_POS, ARG_NAMED, ARG_STAR, ARG_STAR2, op_methods
+from mypy.nodes import ArgKind, ARG_POS, ARG_NAMED, ARG_STAR, ARG_STAR2
+from mypy.operators import op_methods
 from mypy.types import AnyType, TypeOfAny
 from mypy.checkexpr import map_actuals_to_formals
 
@@ -51,7 +52,7 @@ from mypyc.primitives.tuple_ops import (
     list_tuple_op, new_tuple_op, new_tuple_with_length_op
 )
 from mypyc.primitives.dict_ops import (
-    dict_update_in_display_op, dict_new_op, dict_build_op, dict_size_op
+    dict_update_in_display_op, dict_new_op, dict_build_op, dict_ssize_t_size_op
 )
 from mypyc.primitives.generic_ops import (
     py_getattr_op, py_call_op, py_call_with_kwargs_op, py_method_call_op,
@@ -63,7 +64,9 @@ from mypyc.primitives.misc_ops import (
 )
 from mypyc.primitives.int_ops import int_comparison_op_mapping
 from mypyc.primitives.exc_ops import err_occurred_op, keep_propagating_op
-from mypyc.primitives.str_ops import unicode_compare, str_check_if_true
+from mypyc.primitives.str_ops import (
+    unicode_compare, str_check_if_true, str_ssize_t_size_op
+)
 from mypyc.primitives.set_ops import new_set_op
 from mypyc.rt_subtype import is_runtime_subtype
 from mypyc.subtype import is_subtype
@@ -76,7 +79,7 @@ DictEntry = Tuple[Optional[Value], Value]
 
 
 # From CPython
-PY_VECTORCALL_ARGUMENTS_OFFSET = 1 << (PLATFORM_SIZE * 8 - 1)  # type: Final
+PY_VECTORCALL_ARGUMENTS_OFFSET: Final = 1 << (PLATFORM_SIZE * 8 - 1)
 
 
 class LowLevelIRBuilder:
@@ -89,10 +92,10 @@ class LowLevelIRBuilder:
         self.current_module = current_module
         self.mapper = mapper
         self.options = options
-        self.args = []  # type: List[Register]
-        self.blocks = []  # type: List[BasicBlock]
+        self.args: List[Register] = []
+        self.blocks: List[BasicBlock] = []
         # Stack of except handler entry blocks
-        self.error_handlers = [None]  # type: List[Optional[BasicBlock]]
+        self.error_handlers: List[Optional[BasicBlock]] = [None]
 
     # Basic operations
 
@@ -256,7 +259,7 @@ class LowLevelIRBuilder:
                 function: Value,
                 arg_values: List[Value],
                 line: int,
-                arg_kinds: Optional[List[int]] = None,
+                arg_kinds: Optional[List[ArgKind]] = None,
                 arg_names: Optional[Sequence[Optional[str]]] = None) -> Value:
         """Call a Python function (non-native and slow).
 
@@ -276,7 +279,7 @@ class LowLevelIRBuilder:
         assert arg_names is not None
 
         pos_arg_values = []
-        kw_arg_key_value_pairs = []  # type: List[DictEntry]
+        kw_arg_key_value_pairs: List[DictEntry] = []
         star_arg_values = []
         for value, kind, name in zip(arg_values, arg_kinds, arg_names):
             if kind == ARG_POS:
@@ -314,7 +317,7 @@ class LowLevelIRBuilder:
                         function: Value,
                         arg_values: List[Value],
                         line: int,
-                        arg_kinds: Optional[List[int]] = None,
+                        arg_kinds: Optional[List[ArgKind]] = None,
                         arg_names: Optional[Sequence[Optional[str]]] = None) -> Optional[Value]:
         """Call function using the vectorcall API if possible.
 
@@ -322,7 +325,7 @@ class LowLevelIRBuilder:
         API should be used instead.
         """
         # We can do this if all args are positional or named (no *args or **kwargs).
-        if arg_kinds is None or all(kind in (ARG_POS, ARG_NAMED) for kind in arg_kinds):
+        if arg_kinds is None or all(not kind.is_star() for kind in arg_kinds):
             if arg_values:
                 # Create a C array containing all arguments as boxed values.
                 array = Register(RArray(object_rprimitive, len(arg_values)))
@@ -362,7 +365,7 @@ class LowLevelIRBuilder:
                        method_name: str,
                        arg_values: List[Value],
                        line: int,
-                       arg_kinds: Optional[List[int]],
+                       arg_kinds: Optional[List[ArgKind]],
                        arg_names: Optional[Sequence[Optional[str]]]) -> Value:
         """Call a Python method (non-native and slow)."""
         if use_method_vectorcall(self.options.capi_version):
@@ -386,14 +389,14 @@ class LowLevelIRBuilder:
                                method_name: str,
                                arg_values: List[Value],
                                line: int,
-                               arg_kinds: Optional[List[int]],
+                               arg_kinds: Optional[List[ArgKind]],
                                arg_names: Optional[Sequence[Optional[str]]]) -> Optional[Value]:
         """Call method using the vectorcall API if possible.
 
         Return the return value if successful. Return None if a non-vectorcall
         API should be used instead.
         """
-        if arg_kinds is None or all(kind in (ARG_POS, ARG_NAMED) for kind in arg_kinds):
+        if arg_kinds is None or all(not kind.is_star() for kind in arg_kinds):
             method_name_reg = self.load_str(method_name)
             array = Register(RArray(object_rprimitive, len(arg_values) + 1))
             self_arg = self.coerce(obj, object_rprimitive, line)
@@ -420,7 +423,7 @@ class LowLevelIRBuilder:
     def call(self,
              decl: FuncDecl,
              args: Sequence[Value],
-             arg_kinds: List[int],
+             arg_kinds: List[ArgKind],
              arg_names: Sequence[Optional[str]],
              line: int) -> Value:
         """Call a native function."""
@@ -431,7 +434,7 @@ class LowLevelIRBuilder:
 
     def native_args_to_positional(self,
                                   args: Sequence[Value],
-                                  arg_kinds: List[int],
+                                  arg_kinds: List[ArgKind],
                                   arg_names: Sequence[Optional[str]],
                                   sig: FuncSignature,
                                   line: int) -> List[Value]:
@@ -479,13 +482,11 @@ class LowLevelIRBuilder:
                         arg_values: List[Value],
                         result_type: Optional[RType],
                         line: int,
-                        arg_kinds: Optional[List[int]] = None,
+                        arg_kinds: Optional[List[ArgKind]] = None,
                         arg_names: Optional[List[Optional[str]]] = None) -> Value:
         """Generate either a native or Python method call."""
-        # If arg_kinds contains values other than arg_pos and arg_named, then fallback to
-        # Python method call.
-        if (arg_kinds is not None
-                and not all(kind in (ARG_POS, ARG_NAMED) for kind in arg_kinds)):
+        # If we have *args, then fallback to Python method call.
+        if (arg_kinds is not None and any(kind.is_star() for kind in arg_kinds)):
             return self.py_method_call(base, name, arg_values, base.line, arg_kinds, arg_names)
 
         # If the base type is one of ours, do a MethodCall
@@ -530,7 +531,7 @@ class LowLevelIRBuilder:
                           arg_values: List[Value],
                           return_rtype: Optional[RType],
                           line: int,
-                          arg_kinds: Optional[List[int]],
+                          arg_kinds: Optional[List[ArgKind]],
                           arg_names: Optional[List[Optional[str]]]) -> Value:
         """Generate a method call with a union type for the object."""
         # Union method call needs a return_rtype for the type of the output register.
@@ -646,6 +647,8 @@ class LowLevelIRBuilder:
         if is_bool_rprimitive(ltype) and is_bool_rprimitive(rtype) and op in (
                 '&', '&=', '|', '|=', '^', '^='):
             return self.bool_bitwise_op(lreg, rreg, op[0], line)
+        if isinstance(rtype, RInstance) and op in ('in', 'not in'):
+            return self.translate_instance_contains(rreg, lreg, op, line)
 
         call_c_ops_candidates = binary_ops.get(op, [])
         target = self.matching_call_c(call_c_ops_candidates, [lreg, rreg], line)
@@ -829,6 +832,14 @@ class LowLevelIRBuilder:
         self.goto_and_activate(out)
         return result
 
+    def translate_instance_contains(self, inst: Value, item: Value, op: str, line: int) -> Value:
+        res = self.gen_method_call(inst, '__contains__', [item], None, line)
+        if not is_bool_rprimitive(res.type):
+            res = self.call_c(bool_op, [res], line)
+        if op == 'not in':
+            res = self.bool_bitwise_op(res, Integer(1, rtype=bool_rprimitive), '^', line)
+        return res
+
     def bool_bitwise_op(self, lreg: Value, rreg: Value, op: str, line: int) -> Value:
         if op == '&':
             code = IntOp.AND
@@ -847,20 +858,30 @@ class LowLevelIRBuilder:
         return self.int_op(value.type, value, mask, IntOp.XOR, line)
 
     def unary_op(self,
-                 lreg: Value,
+                 value: Value,
                  expr_op: str,
                  line: int) -> Value:
-        if (is_bool_rprimitive(lreg.type) or is_bit_rprimitive(lreg.type)) and expr_op == 'not':
-            return self.unary_not(lreg, line)
+        typ = value.type
+        if (is_bool_rprimitive(typ) or is_bit_rprimitive(typ)) and expr_op == 'not':
+            return self.unary_not(value, line)
+        if isinstance(typ, RInstance):
+            if expr_op == '-':
+                method = '__neg__'
+            elif expr_op == '~':
+                method = '__invert__'
+            else:
+                method = ''
+            if method and typ.class_ir.has_method(method):
+                return self.gen_method_call(value, method, [], None, line)
         call_c_ops_candidates = unary_ops.get(expr_op, [])
-        target = self.matching_call_c(call_c_ops_candidates, [lreg], line)
+        target = self.matching_call_c(call_c_ops_candidates, [value], line)
         assert target, 'Unsupported unary operation: %s' % expr_op
         return target
 
     def make_dict(self, key_value_pairs: Sequence[DictEntry], line: int) -> Value:
-        result = None  # type: Union[Value, None]
-        keys = []  # type: List[Value]
-        values = []  # type: List[Value]
+        result: Union[Value, None] = None
+        keys: List[Value] = []
+        values: List[Value] = []
         for key, value in key_value_pairs:
             if key is not None:
                 # key:value
@@ -890,6 +911,20 @@ class LowLevelIRBuilder:
             result = self._create_dict(keys, values, line)
 
         return result
+
+    def new_list_op_with_length(self, length: Value, line: int) -> Value:
+        """This function returns an uninitialized list.
+
+        If the length is non-zero, the caller must initialize the list, before
+        it can be made visible to user code -- otherwise the list object is broken.
+        You might need further initialization with `new_list_set_item_op` op.
+
+        Args:
+            length: desired length of the new list. The rtype should be
+                    c_pyssize_t_rprimitive
+            line: line number
+        """
+        return self.call_c(new_list_op, [length], line)
 
     def new_list_op(self, values: List[Value], line: int) -> Value:
         length = Integer(len(values), c_pyssize_t_rprimitive, line)
@@ -1059,9 +1094,7 @@ class LowLevelIRBuilder:
                         args: List[Value],
                         line: int,
                         result_type: Optional[RType] = None) -> Optional[Value]:
-        # TODO: this function is very similar to matching_primitive_op
-        # we should remove the old one or refactor both them into only as we move forward
-        matching = None  # type: Optional[CFunctionDescription]
+        matching: Optional[CFunctionDescription] = None
         for desc in candidates:
             if len(desc.arg_types) != len(args):
                 continue
@@ -1085,54 +1118,71 @@ class LowLevelIRBuilder:
     def comparison_op(self, lhs: Value, rhs: Value, op: int, line: int) -> Value:
         return self.add(ComparisonOp(lhs, rhs, op, line))
 
-    def builtin_len(self, val: Value, line: int,
-                    use_pyssize_t: bool = False) -> Value:
-        """Return short_int_rprimitive by default."""
+    def builtin_len(self, val: Value, line: int, use_pyssize_t: bool = False) -> Value:
+        """Generate len(val).
+
+        Return short_int_rprimitive by default.
+        Return c_pyssize_t if use_pyssize_t is true (unshifted).
+        """
         typ = val.type
+        size_value = None
         if is_list_rprimitive(typ) or is_tuple_rprimitive(typ):
             elem_address = self.add(GetElementPtr(val, PyVarObject, 'ob_size'))
             size_value = self.add(LoadMem(c_pyssize_t_rprimitive, elem_address))
             self.add(KeepAlive([val]))
-            if use_pyssize_t:
-                return size_value
-            offset = Integer(1, c_pyssize_t_rprimitive, line)
-            return self.int_op(short_int_rprimitive, size_value, offset,
-                               IntOp.LEFT_SHIFT, line)
-        elif is_dict_rprimitive(typ):
-            size_value = self.call_c(dict_size_op, [val], line)
-            if use_pyssize_t:
-                return size_value
-            offset = Integer(1, c_pyssize_t_rprimitive, line)
-            return self.int_op(short_int_rprimitive, size_value, offset,
-                               IntOp.LEFT_SHIFT, line)
         elif is_set_rprimitive(typ):
             elem_address = self.add(GetElementPtr(val, PySetObject, 'used'))
             size_value = self.add(LoadMem(c_pyssize_t_rprimitive, elem_address))
             self.add(KeepAlive([val]))
+        elif is_dict_rprimitive(typ):
+            size_value = self.call_c(dict_ssize_t_size_op, [val], line)
+        elif is_str_rprimitive(typ):
+            size_value = self.call_c(str_ssize_t_size_op, [val], line)
+
+        if size_value is not None:
             if use_pyssize_t:
                 return size_value
             offset = Integer(1, c_pyssize_t_rprimitive, line)
             return self.int_op(short_int_rprimitive, size_value, offset,
                                IntOp.LEFT_SHIFT, line)
+
+        if isinstance(typ, RInstance):
+            # TODO: Support use_pyssize_t
+            assert not use_pyssize_t
+            length = self.gen_method_call(val, '__len__', [], int_rprimitive, line)
+            length = self.coerce(length, int_rprimitive, line)
+            ok, fail = BasicBlock(), BasicBlock()
+            self.compare_tagged_condition(length, Integer(0), '>=', ok, fail, line)
+            self.activate_block(fail)
+            self.add(RaiseStandardError(RaiseStandardError.VALUE_ERROR,
+                                        "__len__() should return >= 0",
+                                        line))
+            self.add(Unreachable())
+            self.activate_block(ok)
+            return length
+
         # generic case
+        if use_pyssize_t:
+            return self.call_c(generic_ssize_t_len_op, [val], line)
         else:
-            if use_pyssize_t:
-                return self.call_c(generic_ssize_t_len_op, [val], line)
-            else:
-                return self.call_c(generic_len_op, [val], line)
+            return self.call_c(generic_len_op, [val], line)
 
     def new_tuple(self, items: List[Value], line: int) -> Value:
-        size = Integer(len(items), c_pyssize_t_rprimitive)  # type: Value
+        size: Value = Integer(len(items), c_pyssize_t_rprimitive)
         return self.call_c(new_tuple_op, [size] + items, line)
 
-    def new_tuple_with_length(self, val: Value, line: int) -> Value:
-        """Generate a new empty tuple with length from a list or tuple
+    def new_tuple_with_length(self, length: Value, line: int) -> Value:
+        """This function returns an uninitialized tuple.
+
+        If the length is non-zero, the caller must initialize the tuple, before
+        it can be made visible to user code -- otherwise the tuple object is broken.
+        You might need further initialization with `new_tuple_set_item_op` op.
 
         Args:
-            val: a list or tuple
+            length: desired length of the new tuple. The rtype should be
+                    c_pyssize_t_rprimitive
             line: line number
         """
-        length = self.builtin_len(val, line, use_pyssize_t=True)
         return self.call_c(new_tuple_with_length_op, [length], line)
 
     # Internal helpers
@@ -1284,7 +1334,7 @@ class LowLevelIRBuilder:
         # keys and values should have the same number of items
         size = len(keys)
         if size > 0:
-            size_value = Integer(size, c_pyssize_t_rprimitive)  # type: Value
+            size_value: Value = Integer(size, c_pyssize_t_rprimitive)
             # merge keys and values
             items = [i for t in list(zip(keys, values)) for i in t]
             return self.call_c(dict_build_op, [size_value] + items, line)
@@ -1292,7 +1342,7 @@ class LowLevelIRBuilder:
             return self.call_c(dict_new_op, [], line)
 
 
-def num_positional_args(arg_values: List[Value], arg_kinds: Optional[List[int]]) -> int:
+def num_positional_args(arg_values: List[Value], arg_kinds: Optional[List[ArgKind]]) -> int:
     if arg_kinds is None:
         return len(arg_values)
     num_pos = 0

@@ -1,8 +1,8 @@
 import importlib.abc
 import importlib.machinery
-import os
 import types
-from typing import Any, Callable, List, Optional, Union
+from _typeshed import StrOrBytesPath
+from typing import Any, Callable, List, Optional
 
 def module_for_loader(fxn: Callable[..., types.ModuleType]) -> Callable[..., types.ModuleType]: ...
 def set_loader(fxn: Callable[..., types.ModuleType]) -> Callable[..., types.ModuleType]: ...
@@ -16,15 +16,11 @@ def source_from_cache(path: str) -> str: ...
 def decode_source(source_bytes: bytes) -> str: ...
 def find_spec(name: str, package: Optional[str] = ...) -> Optional[importlib.machinery.ModuleSpec]: ...
 def spec_from_loader(
-    name: str,
-    loader: Optional[importlib.abc.Loader],
-    *,
-    origin: Optional[str] = ...,
-    is_package: Optional[bool] = ...,
+    name: str, loader: Optional[importlib.abc.Loader], *, origin: Optional[str] = ..., is_package: Optional[bool] = ...
 ) -> Optional[importlib.machinery.ModuleSpec]: ...
 def spec_from_file_location(
     name: str,
-    location: Optional[Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]] = ...,
+    location: Optional[StrOrBytesPath] = ...,
     *,
     loader: Optional[importlib.abc.Loader] = ...,
     submodule_search_locations: Optional[List[str]] = ...,

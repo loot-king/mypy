@@ -3,7 +3,7 @@
 from typing import List, Optional, Sequence
 from typing_extensions import Final
 
-from mypy.nodes import FuncDef, Block, ARG_POS, ARG_OPT, ARG_NAMED_OPT
+from mypy.nodes import FuncDef, Block, ArgKind, ARG_POS
 
 from mypyc.common import JsonDict
 from mypyc.ir.ops import (
@@ -19,27 +19,27 @@ class RuntimeArg:
     Argument kind is one of ARG_* constants defined in mypy.nodes.
     """
 
-    def __init__(self, name: str, typ: RType, kind: int = ARG_POS) -> None:
+    def __init__(self, name: str, typ: RType, kind: ArgKind = ARG_POS) -> None:
         self.name = name
         self.type = typ
         self.kind = kind
 
     @property
     def optional(self) -> bool:
-        return self.kind == ARG_OPT or self.kind == ARG_NAMED_OPT
+        return self.kind.is_optional()
 
     def __repr__(self) -> str:
         return 'RuntimeArg(name=%s, type=%s, optional=%r)' % (self.name, self.type, self.optional)
 
     def serialize(self) -> JsonDict:
-        return {'name': self.name, 'type': self.type.serialize(), 'kind': self.kind}
+        return {'name': self.name, 'type': self.type.serialize(), 'kind': int(self.kind.value)}
 
     @classmethod
     def deserialize(cls, data: JsonDict, ctx: DeserMaps) -> 'RuntimeArg':
         return RuntimeArg(
             data['name'],
             deserialize_type(data['type'], ctx),
-            data['kind'],
+            ArgKind(data['kind']),
         )
 
 
@@ -66,9 +66,9 @@ class FuncSignature:
         )
 
 
-FUNC_NORMAL = 0  # type: Final
-FUNC_STATICMETHOD = 1  # type: Final
-FUNC_CLASSMETHOD = 2  # type: Final
+FUNC_NORMAL: Final = 0
+FUNC_STATICMETHOD: Final = 1
+FUNC_CLASSMETHOD: Final = 2
 
 
 class FuncDecl:
@@ -94,7 +94,7 @@ class FuncDecl:
         self.is_prop_setter = is_prop_setter
         self.is_prop_getter = is_prop_getter
         if class_name is None:
-            self.bound_sig = None  # type: Optional[FuncSignature]
+            self.bound_sig: Optional[FuncSignature] = None
         else:
             if kind == FUNC_STATICMETHOD:
                 self.bound_sig = sig
@@ -220,7 +220,7 @@ class FuncIR:
         )
 
 
-INVALID_FUNC_DEF = FuncDef('<INVALID_FUNC_DEF>', [], Block([]))  # type: Final
+INVALID_FUNC_DEF: Final = FuncDef("<INVALID_FUNC_DEF>", [], Block([]))
 
 
 def all_values(args: List[Register], blocks: List[BasicBlock]) -> List[Value]:
@@ -228,7 +228,7 @@ def all_values(args: List[Register], blocks: List[BasicBlock]) -> List[Value]:
 
     This omits registers that are only read.
     """
-    values = list(args)  # type: List[Value]
+    values: List[Value] = list(args)
     seen_registers = set(args)
 
     for block in blocks:
@@ -254,13 +254,13 @@ def all_values(args: List[Register], blocks: List[BasicBlock]) -> List[Value]:
 
 def all_values_full(args: List[Register], blocks: List[BasicBlock]) -> List[Value]:
     """Return set of all values that are initialized or accessed."""
-    values = list(args)  # type: List[Value]
+    values: List[Value] = list(args)
     seen_registers = set(args)
 
     for block in blocks:
         for op in block.ops:
             for source in op.sources():
-                # Look for unitialized registers that are accessed. Ignore
+                # Look for uninitialized registers that are accessed. Ignore
                 # non-registers since we don't allow ops outside basic blocks.
                 if isinstance(source, Register) and source not in seen_registers:
                     values.append(source)
