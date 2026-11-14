@@ -80,6 +80,43 @@ Traceback (most recent call last):
   File "native.py", line 23, in __init__
     raise Exception
 Exception
+[out version>=3.13]
+Traceback (most recent call last):
+  File "driver.py", line 4, in <module>
+    f([])
+    ~^^^^
+  File "native.py", line 3, in f
+    g(x)
+  File "native.py", line 6, in g
+    x[5] = 2
+IndexError: list assignment index out of range
+Traceback (most recent call last):
+  File "driver.py", line 8, in <module>
+    r1()
+    ~~^^
+  File "native.py", line 10, in r1
+    q1()
+  File "native.py", line 13, in q1
+    raise Exception("test")
+Exception: test
+Traceback (most recent call last):
+  File "driver.py", line 12, in <module>
+    r2()
+    ~~^^
+  File "native.py", line 16, in r2
+    q2()
+  File "native.py", line 19, in q2
+    raise Exception
+Exception
+Traceback (most recent call last):
+  File "driver.py", line 16, in <module>
+    hey()
+    ~~~^^
+  File "native.py", line 26, in hey
+    A()
+  File "native.py", line 23, in __init__
+    raise Exception
+Exception
 
 [case testTryExcept]
 from typing import Any, Iterator
@@ -241,6 +278,55 @@ During handling of the above exception, another exception occurred:
 Traceback (most recent call last):
   File "driver.py", line 12, in <module>
     k()
+  File "native.py", line 61, in k
+    r(0)
+  File "native.py", line 15, in r
+    [0][1]
+IndexError: list index out of range
+== g ==
+caught!
+caught!
+== f ==
+hi
+None
+list index out of range
+None
+== h ==
+gonna break
+None
+== j ==
+lookup!
+lookup!
+attr! -- 'object' object has no attribute 'lol'
+out!
+== l ==
+key! -- 0
+[out version>=3.13]
+== i ==
+<class 'IndexError'>
+Traceback (most recent call last):
+  File "driver.py", line 6, in <module>
+    i()
+    ~^^
+  File "native.py", line 44, in i
+    r(0)
+  File "native.py", line 15, in r
+    [0][1]
+IndexError: list index out of range
+== k ==
+Traceback (most recent call last):
+  File "native.py", line 59, in k
+    r(1)
+  File "native.py", line 17, in r
+    raise Exception('hi')
+Exception: hi
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "driver.py", line 12, in <module>
+    k()
+    ~^^
   File "native.py", line 61, in k
     r(0)
   File "native.py", line 15, in r
@@ -446,3 +532,212 @@ Traceback (most recent call last):
   File "native.py", line 6, in <module>
     f(y)
 TypeError: int object expected; got str
+
+[case testRaiseFrom]
+from typing import Any
+
+from exceptions_helper import OtherException
+from testutil import assertRaises
+
+class Inner(Exception):
+    pass
+
+class Outer(Exception):
+    pass
+
+def raise_from(exc: Any, cause: Any) -> None:
+    try:
+        raise Inner("inner")
+    except Inner:
+        raise exc from cause
+
+def test_raise_from_instance() -> None:
+    cause = ValueError("cause")
+    try:
+        raise_from(Outer("outer"), cause)
+    except Outer as e:
+        assert e.__cause__ is cause
+        assert e.__suppress_context__
+        assert isinstance(e.__context__, Inner)
+    else:
+        assert False
+
+def test_raise_from_class() -> None:
+    try:
+        raise_from(Outer, ValueError)
+    except Outer as e:
+        assert type(e.__cause__) is ValueError
+        assert e.__suppress_context__
+    else:
+        assert False
+
+def test_raise_from_none() -> None:
+    try:
+        raise_from(Outer("outer"), None)
+    except Outer as e:
+        assert e.__cause__ is None
+        assert e.__suppress_context__
+        assert isinstance(e.__context__, Inner)
+    else:
+        assert False
+
+def test_raise_from_invalid_cause() -> None:
+    with assertRaises(TypeError, "exception causes must derive from BaseException"):
+        raise_from(Outer("outer"), 1)
+
+def test_raise_from_invalid_exception() -> None:
+    with assertRaises(TypeError, "exceptions must derive from BaseException"):
+        raise_from(1, ValueError())
+
+def test_raise_from_in_except() -> None:
+    try:
+        try:
+            raise Inner("inner")
+        except Inner as exc:
+            raise Outer("outer") from exc
+    except Outer as e:
+        assert isinstance(e.__cause__, Inner)
+        assert e.__cause__ is e.__context__
+    else:
+        assert False
+
+def test_raise_from_reassigned_exception() -> None:
+    original = ValueError("original")
+    cause = TypeError("cause")
+    exc: Exception = original
+    try:
+        raise exc from (exc := cause)
+    except ValueError as e:
+        assert e is original
+        assert e.__cause__ is cause
+        assert exc is cause
+    else:
+        assert False
+
+def test_raise_from_class_returning_unrelated_exception() -> None:
+    # Normalization calls OtherException again with the ValueError as an argument.
+    with assertRaises(TypeError):
+        raise_from(OtherException, None)
+
+def raise_plain(exc: Any) -> None:
+    raise exc
+
+def test_raise_plain_preserves_cause() -> None:
+    cause = ValueError("cause")
+    exc = Outer("outer")
+    try:
+        raise_from(exc, cause)
+    except Outer:
+        pass
+    try:
+        raise_plain(exc)
+    except Outer as e:
+        assert e is exc
+        assert e.__cause__ is cause
+        assert e.__suppress_context__
+    else:
+        assert False
+
+def test_raise_plain_does_not_suppress_context() -> None:
+    try:
+        try:
+            raise Inner("inner")
+        except Inner:
+            raise_plain(Outer("outer"))
+    except Outer as e:
+        assert e.__cause__ is None
+        assert not e.__suppress_context__
+        assert isinstance(e.__context__, Inner)
+    else:
+        assert False
+
+def test_raise_plain_invalid_exception() -> None:
+    with assertRaises(TypeError, "exceptions must derive from BaseException"):
+        raise_plain(1)
+
+def test_raise_plain_class_returning_unrelated_exception() -> None:
+    with assertRaises(TypeError):
+        raise_plain(OtherException)
+
+[file exceptions_helper.py]
+from typing import Any
+
+class OtherException(Exception):
+    def __new__(cls) -> Any:
+        return ValueError("other")
+
+[case testExceptionVariableCapturedByNestedFunction]
+from typing import Callable, Iterator
+
+def call(f: Callable[[], str]) -> str:
+    return f()
+
+def test_lambda() -> None:
+    try:
+        raise RuntimeError("x")
+    except RuntimeError as exc:
+        assert call(lambda: str(exc)) == "x"
+
+def test_nested_function() -> None:
+    try:
+        raise ValueError("y")
+    except Exception as exc:
+        def f() -> str:
+            return type(exc).__name__ + str(exc)
+        assert call(f) == "ValueErrory"
+
+def gen() -> Iterator[str]:
+    try:
+        raise KeyError("z")
+    except KeyError as exc:
+        yield call(lambda: repr(exc))
+
+def test_generator() -> None:
+    assert list(gen()) == ["KeyError('z')"]
+
+[case testBareRaiseWithoutActiveException]
+from testutil import assertRaises
+
+def reraise() -> None:
+    raise
+
+def reraise_caught() -> str:
+    try:
+        raise
+    except RuntimeError as e:
+        return str(e)
+
+def test_no_active_exception() -> None:
+    with assertRaises(RuntimeError, "No active exception to reraise"):
+        reraise()
+    assert reraise_caught() == "No active exception to reraise"
+
+def test_after_handled_exception() -> None:
+    try:
+        raise ValueError("x")
+    except ValueError:
+        pass
+    with assertRaises(RuntimeError, "No active exception to reraise"):
+        reraise()
+
+def test_active_exception() -> None:
+    try:
+        raise ValueError("x")
+    except ValueError:
+        with assertRaises(ValueError, "x"):
+            reraise()
+
+[file driver.py]
+import sys
+import native
+
+native.test_no_active_exception()
+native.test_after_handled_exception()
+native.test_active_exception()
+assert sys.exc_info() == (None, None, None)
+try:
+    native.reraise()
+except RuntimeError as e:
+    assert str(e) == "No active exception to reraise"
+else:
+    assert False

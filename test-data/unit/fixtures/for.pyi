@@ -1,5 +1,6 @@
 # builtins stub used in for statement test cases
 
+import types
 from typing import TypeVar, Generic, Iterable, Iterator, Generator
 from abc import abstractmethod, ABCMeta
 
@@ -14,7 +15,10 @@ class tuple(Generic[t]):
 class function: pass
 class bool: pass
 class int: pass # for convenience
-class str: pass # for convenience
+class float: pass  # for convenience
+class str:  # for convenience
+    def upper(self) -> str: ...
 
 class list(Iterable[t], Generic[t]):
     def __iter__(self) -> Iterator[t]: pass
+class dict: pass

@@ -1,10 +1,9 @@
-from typing import TypeVar, Generic, Iterable, Iterator, Mapping, Tuple, overload, Optional, Union
+import types
+from typing import TypeVar, Generic, Iterable, Iterator, Mapping, Tuple, overload, Optional, Union, Any
 
 T = TypeVar('T')
 KT = TypeVar('KT')
 VT = TypeVar('VT')
-
-Any = 0
 
 class object:
     def __init__(self) -> None: pass
@@ -22,7 +21,6 @@ class tuple(Generic[T]): pass
 class slice: pass
 class function: pass
 
-class ellipsis: pass
 
 class list(Iterable[T], Generic[T]):
     @overload
@@ -36,7 +34,7 @@ class list(Iterable[T], Generic[T]):
     def append(self, x: T) -> None: pass
     def extend(self, x: Iterable[T]) -> None: pass
 
-class dict(Iterable[KT], Mapping[KT, VT], Generic[KT, VT]):
+class dict(Mapping[KT, VT], Generic[KT, VT]):
     @overload
     def __init__(self, **kwargs: VT) -> None: pass
     @overload
@@ -46,9 +44,11 @@ class dict(Iterable[KT], Mapping[KT, VT], Generic[KT, VT]):
     def __iter__(self) -> Iterator[KT]: pass
     def update(self, a: Mapping[KT, VT]) -> None: pass
     @overload
-    def get(self, k: KT) -> Optional[VT]: pass
+    def get(self, key: KT, default: None = None, /) -> Optional[VT]: pass
     @overload
-    def get(self, k: KT, default: Union[KT, T]) -> Union[VT, T]: pass
+    def get(self, key: KT, default: VT, /) -> VT: pass
+    @overload
+    def get(self, key: KT, default: T, /) -> Union[VT, T]: pass
 
 
 class int:

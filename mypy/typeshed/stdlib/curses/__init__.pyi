@@ -1,15 +1,38 @@
-from _curses import *  # noqa: F403
-from _curses import _CursesWindow as _CursesWindow
-from typing import Any, Callable, TypeVar
+from _curses import *
+from _curses import window as window
+from _typeshed import structseq
+from collections.abc import Callable
+from typing import Concatenate, Final, ParamSpec, TypeVar, final, type_check_only
+
+# NOTE: The _curses module is ordinarily only available on Unix, but the
+# windows-curses package makes it available on Windows as well with the same
+# contents.
 
 _T = TypeVar("_T")
+_P = ParamSpec("_P")
 
 # available after calling `curses.initscr()`
+# not `Final` as it can change during the terminal resize:
 LINES: int
 COLS: int
 
 # available after calling `curses.start_color()`
-COLORS: int
-COLOR_PAIRS: int
+COLORS: Final[int]
+COLOR_PAIRS: Final[int]
 
-def wrapper(__func: Callable[..., _T], *arg: Any, **kwds: Any) -> _T: ...
+def wrapper(func: Callable[Concatenate[window, _P], _T], /, *arg: _P.args, **kwds: _P.kwargs) -> _T: ...
+
+# At runtime this class is unexposed and calls itself curses.ncurses_version.
+# That name would conflict with the actual curses.ncurses_version, which is
+# an instance of this class.
+@final
+@type_check_only
+class _ncurses_version(structseq[int], tuple[int, int, int]):
+    __match_args__: Final = ("major", "minor", "patch")
+
+    @property
+    def major(self) -> int: ...
+    @property
+    def minor(self) -> int: ...
+    @property
+    def patch(self) -> int: ...

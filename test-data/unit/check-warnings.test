@@ -42,6 +42,32 @@ a: Any
 b = cast(Any, a)
 [builtins fixtures/list.pyi]
 
+[case testCastToObjectNotRedunant]
+# flags: --warn-redundant-casts
+from typing import cast
+
+a = 1
+b = cast(object, 1)
+
+[case testCastFromLiteralRedundant]
+# flags: --warn-redundant-casts
+from typing import cast
+
+cast(int, 1)
+[out]
+main:4: error: Redundant cast to "int"
+
+[case testCastFromUnionOfAnyOk]
+# flags: --warn-redundant-casts
+from typing import Any, cast, Union
+
+x = Any
+y = Any
+z = Any
+
+def f(q: Union[x, y, z]) -> None:
+    cast(Union[x, y], q)
+
 -- Unused 'type: ignore' comments
 -- ------------------------------
 
@@ -51,7 +77,7 @@ a = 1
 if int():
     a = 'a' # type: ignore
 if int():
-    a = 2 # type: ignore # E: unused 'type: ignore' comment
+    a = 2 # type: ignore # E: Unused "type: ignore" comment
 if int():
     a = 'b' # E: Incompatible types in assignment (expression has type "str", variable has type "int")
 
@@ -63,8 +89,8 @@ from m import * # type: ignore
 [file m.py]
 pass
 [out]
-main:3: error: unused 'type: ignore' comment
-main:4: error: unused 'type: ignore' comment
+main:3: error: Unused "type: ignore" comment
+main:4: error: Unused "type: ignore" comment
 
 
 -- No return
@@ -181,7 +207,7 @@ def g() -> Any: pass
 def f() -> typ: return g()
 [builtins fixtures/tuple.pyi]
 [out]
-main:11: error: Returning Any from function declared to return "Tuple[int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int]"
+main:11: error: Returning Any from function declared to return "tuple[int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int]"
 
 [case testReturnAnySilencedFromTypedFunction]
 # flags: --warn-return-any
@@ -207,7 +233,7 @@ def f() -> Any: return g()
 [out]
 
 [case testOKReturnAnyIfProperSubtype]
-# flags: --warn-return-any --strict-optional
+# flags: --warn-return-any
 from typing import Any, Optional
 
 class Test(object):
@@ -234,3 +260,25 @@ def foo(a1: A) -> int:
 class A:
     def __init__(self, x: int) -> None:
         self._x = x
+
+[case testReturnAnyGeneric]
+# flags: --warn-return-any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
+def same(x: T) -> T: ...
+def test() -> list[int]:
+    a: Any
+    return same(a)  # E: Returning Any from function declared to return "list[int]"
+
+[case testRedundantCastGenericReturn]
+# flags: --warn-redundant-casts
+from typing import TypeVar, cast
+
+T = TypeVar("T")
+
+def identity(xs: list[T]) -> list[T]:
+    return xs
+
+def f(xs: list[int]) -> list[int]:
+    return cast(list[int], identity(xs))  # E: Redundant cast to "list[int]"

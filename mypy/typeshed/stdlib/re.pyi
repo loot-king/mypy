@@ -1,117 +1,351 @@
 import enum
 import sys
-from sre_constants import error as error
-from typing import Any, AnyStr, Callable, Iterator, List, Optional, Tuple, Union, overload
+from _typeshed import MaybeNone, ReadableBuffer
+from collections.abc import Callable, Iterator, Mapping
+from types import GenericAlias
+from typing import Any, AnyStr, Final, Generic, Literal, TypeAlias, TypeVar, final, overload
+from typing_extensions import deprecated
+
+__all__ = [
+    "match",
+    "fullmatch",
+    "search",
+    "sub",
+    "subn",
+    "split",
+    "findall",
+    "finditer",
+    "compile",
+    "purge",
+    "escape",
+    "error",
+    "A",
+    "I",
+    "L",
+    "M",
+    "S",
+    "X",
+    "U",
+    "ASCII",
+    "IGNORECASE",
+    "LOCALE",
+    "MULTILINE",
+    "DOTALL",
+    "VERBOSE",
+    "UNICODE",
+    "Match",
+    "Pattern",
+]
+if sys.version_info >= (3, 15):
+    __all__ += ["prefixmatch"]
+if sys.version_info < (3, 13):
+    __all__ += ["template"]
+
+if sys.version_info >= (3, 11):
+    __all__ += ["NOFLAG", "RegexFlag"]
+
+if sys.version_info >= (3, 13):
+    __all__ += ["PatternError"]
+
+_T = TypeVar("_T")
+
+# The implementation defines this in re._constants (version_info >= 3, 11) or
+# sre_constants. Typeshed has it here because its __module__ attribute is set to "re".
+class error(Exception):
+    msg: str
+    pattern: str | bytes | None
+    pos: int | None
+    lineno: int
+    colno: int
+    def __init__(self, msg: str, pattern: str | bytes | None = None, pos: int | None = None) -> None: ...
+
+if sys.version_info >= (3, 13):
+    PatternError = error
+
+@final
+class Match(Generic[AnyStr]):
+    @property
+    def pos(self) -> int: ...
+    @property
+    def endpos(self) -> int: ...
+    @property
+    def lastindex(self) -> int | None: ...
+    @property
+    def lastgroup(self) -> str | None: ...
+    @property
+    def string(self) -> AnyStr: ...
+
+    # The regular expression object whose match() or search() method produced
+    # this match instance.
+    @property
+    def re(self) -> Pattern[AnyStr]: ...
+
+    @overload
+    def expand(self: Match[str], template: str) -> str: ...
+    @overload
+    def expand(self: Match[bytes], template: ReadableBuffer) -> bytes: ...
+    @overload
+    def expand(self, template: AnyStr) -> AnyStr: ...
+
+    # group() returns "AnyStr" or "AnyStr | None", depending on the pattern.
+    @overload
+    def group(self, group: Literal[0] = 0, /) -> AnyStr: ...
+    @overload
+    def group(self, group: str | int, /) -> AnyStr | MaybeNone: ...
+    @overload
+    def group(self, group1: str | int, group2: str | int, /, *groups: str | int) -> tuple[AnyStr | MaybeNone, ...]: ...
+
+    # Each item of groups()'s return tuple is either "AnyStr" or
+    # "AnyStr | None", depending on the pattern.
+    @overload
+    def groups(self) -> tuple[AnyStr | MaybeNone, ...]: ...
+    @overload
+    def groups(self, default: _T) -> tuple[AnyStr | _T, ...]: ...
+
+    # Each value in groupdict()'s return dict is either "AnyStr" or
+    # "AnyStr | None", depending on the pattern.
+    @overload
+    def groupdict(self) -> dict[str, AnyStr | MaybeNone]: ...
+    @overload
+    def groupdict(self, default: _T) -> dict[str, AnyStr | _T]: ...
+
+    def start(self, group: int | str = 0, /) -> int: ...
+    def end(self, group: int | str = 0, /) -> int: ...
+    def span(self, group: int | str = 0, /) -> tuple[int, int]: ...
+    @property
+    def regs(self) -> tuple[tuple[int, int], ...]: ...  # undocumented
+
+    # __getitem__() returns "AnyStr" or "AnyStr | None", depending on the pattern.
+    @overload
+    def __getitem__(self, key: Literal[0], /) -> AnyStr: ...
+    @overload
+    def __getitem__(self, key: int | str, /) -> AnyStr | MaybeNone: ...
+
+    def __copy__(self) -> Match[AnyStr]: ...
+    def __deepcopy__(self, memo: Any, /) -> Match[AnyStr]: ...
+    def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
+
+@final
+class Pattern(Generic[AnyStr]):
+    @property
+    def flags(self) -> int: ...
+    @property
+    def groupindex(self) -> Mapping[str, int]: ...
+    @property
+    def groups(self) -> int: ...
+    @property
+    def pattern(self) -> AnyStr: ...
+
+    @overload
+    def search(self: Pattern[str], string: str, pos: int = 0, endpos: int = sys.maxsize) -> Match[str] | None: ...
+    @overload
+    def search(self: Pattern[bytes], string: ReadableBuffer, pos: int = 0, endpos: int = sys.maxsize) -> Match[bytes] | None: ...
+    @overload
+    def search(self, string: AnyStr, pos: int = 0, endpos: int = sys.maxsize) -> Match[AnyStr] | None: ...
+
+    @overload
+    def match(self: Pattern[str], string: str, pos: int = 0, endpos: int = sys.maxsize) -> Match[str] | None: ...
+    @overload
+    def match(self: Pattern[bytes], string: ReadableBuffer, pos: int = 0, endpos: int = sys.maxsize) -> Match[bytes] | None: ...
+    @overload
+    def match(self, string: AnyStr, pos: int = 0, endpos: int = sys.maxsize) -> Match[AnyStr] | None: ...
+
+    if sys.version_info >= (3, 15):
+        prefixmatch = match
+
+    @overload
+    def fullmatch(self: Pattern[str], string: str, pos: int = 0, endpos: int = sys.maxsize) -> Match[str] | None: ...
+    @overload
+    def fullmatch(
+        self: Pattern[bytes], string: ReadableBuffer, pos: int = 0, endpos: int = sys.maxsize
+    ) -> Match[bytes] | None: ...
+    @overload
+    def fullmatch(self, string: AnyStr, pos: int = 0, endpos: int = sys.maxsize) -> Match[AnyStr] | None: ...
+
+    @overload
+    def split(self: Pattern[str], string: str, maxsplit: int = 0) -> list[str | MaybeNone]: ...
+    @overload
+    def split(self: Pattern[bytes], string: ReadableBuffer, maxsplit: int = 0) -> list[bytes | MaybeNone]: ...
+    @overload
+    def split(self, string: AnyStr, maxsplit: int = 0) -> list[AnyStr | MaybeNone]: ...
+
+    # return type is either list[str/bytes] or list[tuple[str/bytes, ...]]
+    @overload
+    def findall(self: Pattern[str], string: str, pos: int = 0, endpos: int = sys.maxsize) -> list[Any]: ...
+    @overload
+    def findall(self: Pattern[bytes], string: ReadableBuffer, pos: int = 0, endpos: int = sys.maxsize) -> list[Any]: ...
+    @overload
+    def findall(self, string: AnyStr, pos: int = 0, endpos: int = sys.maxsize) -> list[AnyStr]: ...
+
+    @overload
+    def finditer(self: Pattern[str], string: str, pos: int = 0, endpos: int = sys.maxsize) -> Iterator[Match[str]]: ...
+    @overload
+    def finditer(
+        self: Pattern[bytes], string: ReadableBuffer, pos: int = 0, endpos: int = sys.maxsize
+    ) -> Iterator[Match[bytes]]: ...
+    @overload
+    def finditer(self, string: AnyStr, pos: int = 0, endpos: int = sys.maxsize) -> Iterator[Match[AnyStr]]: ...
+
+    @overload
+    def sub(self: Pattern[str], repl: str | Callable[[Match[str]], str], string: str, count: int = 0) -> str: ...
+    @overload
+    def sub(
+        self: Pattern[bytes],
+        repl: ReadableBuffer | Callable[[Match[bytes]], ReadableBuffer],
+        string: ReadableBuffer,
+        count: int = 0,
+    ) -> bytes: ...
+    @overload
+    def sub(self, repl: AnyStr | Callable[[Match[AnyStr]], AnyStr], string: AnyStr, count: int = 0) -> AnyStr: ...
+
+    @overload
+    def subn(self: Pattern[str], repl: str | Callable[[Match[str]], str], string: str, count: int = 0) -> tuple[str, int]: ...
+    @overload
+    def subn(
+        self: Pattern[bytes],
+        repl: ReadableBuffer | Callable[[Match[bytes]], ReadableBuffer],
+        string: ReadableBuffer,
+        count: int = 0,
+    ) -> tuple[bytes, int]: ...
+    @overload
+    def subn(self, repl: AnyStr | Callable[[Match[AnyStr]], AnyStr], string: AnyStr, count: int = 0) -> tuple[AnyStr, int]: ...
+
+    def __copy__(self) -> Pattern[AnyStr]: ...
+    def __deepcopy__(self, memo: Any, /) -> Pattern[AnyStr]: ...
+    def __eq__(self, value: object, /) -> bool: ...
+    def __hash__(self) -> int: ...
+    def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
 # ----- re variables and constants -----
-if sys.version_info >= (3, 7):
-    from typing import Match as Match, Pattern as Pattern
-else:
-    from typing import Match, Pattern
 
 class RegexFlag(enum.IntFlag):
-    A: int
-    ASCII: int
-    DEBUG: int
-    I: int
-    IGNORECASE: int
-    L: int
-    LOCALE: int
-    M: int
-    MULTILINE: int
-    S: int
-    DOTALL: int
-    X: int
-    VERBOSE: int
-    U: int
-    UNICODE: int
-    T: int
-    TEMPLATE: int
+    A = 256
+    ASCII = A
+    DEBUG = 128
+    I = 2
+    IGNORECASE = I
+    L = 4
+    LOCALE = L
+    M = 8
+    MULTILINE = M
+    S = 16
+    DOTALL = S
+    X = 64
+    VERBOSE = X
+    U = 32
+    UNICODE = U
+    if sys.version_info < (3, 13):
+        T = 1
+        TEMPLATE = T
+    if sys.version_info >= (3, 11):
+        NOFLAG = 0
 
-A = RegexFlag.A
-ASCII = RegexFlag.ASCII
-DEBUG = RegexFlag.DEBUG
-I = RegexFlag.I
-IGNORECASE = RegexFlag.IGNORECASE
-L = RegexFlag.L
-LOCALE = RegexFlag.LOCALE
-M = RegexFlag.M
-MULTILINE = RegexFlag.MULTILINE
-S = RegexFlag.S
-DOTALL = RegexFlag.DOTALL
-X = RegexFlag.X
-VERBOSE = RegexFlag.VERBOSE
-U = RegexFlag.U
-UNICODE = RegexFlag.UNICODE
-T = RegexFlag.T
-TEMPLATE = RegexFlag.TEMPLATE
-_FlagsType = Union[int, RegexFlag]
+A: Final = RegexFlag.A
+ASCII: Final = RegexFlag.ASCII
+DEBUG: Final = RegexFlag.DEBUG
+I: Final = RegexFlag.I
+IGNORECASE: Final = RegexFlag.IGNORECASE
+L: Final = RegexFlag.L
+LOCALE: Final = RegexFlag.LOCALE
+M: Final = RegexFlag.M
+MULTILINE: Final = RegexFlag.MULTILINE
+S: Final = RegexFlag.S
+DOTALL: Final = RegexFlag.DOTALL
+X: Final = RegexFlag.X
+VERBOSE: Final = RegexFlag.VERBOSE
+U: Final = RegexFlag.U
+UNICODE: Final = RegexFlag.UNICODE
+if sys.version_info < (3, 13):
+    T: Final = RegexFlag.T
+    TEMPLATE: Final = RegexFlag.TEMPLATE
+if sys.version_info >= (3, 11):
+    NOFLAG: Final = RegexFlag.NOFLAG
+_FlagsType: TypeAlias = int | RegexFlag
 
-if sys.version_info < (3, 7):
-    # undocumented
-    _pattern_type: type
+# Type-wise the compile() overloads are unnecessary, they could also be modeled using
+# unions in the parameter types. However mypy has a bug regarding TypeVar
+# constraints (https://github.com/python/mypy/issues/11880),
+# which limits us here because AnyStr is a constrained TypeVar.
+
+# pattern arguments do *not* accept arbitrary buffers such as bytearray,
+# because the pattern must be hashable.
+@overload
+def compile(pattern: AnyStr, flags: _FlagsType = 0) -> Pattern[AnyStr]: ...
+@overload
+def compile(pattern: Pattern[AnyStr], flags: _FlagsType = 0) -> Pattern[AnyStr]: ...
 
 @overload
-def compile(pattern: AnyStr, flags: _FlagsType = ...) -> Pattern[AnyStr]: ...
+def search(pattern: str | Pattern[str], string: str, flags: _FlagsType = 0) -> Match[str] | None: ...
 @overload
-def compile(pattern: Pattern[AnyStr], flags: _FlagsType = ...) -> Pattern[AnyStr]: ...
-@overload
-def search(pattern: AnyStr, string: AnyStr, flags: _FlagsType = ...) -> Optional[Match[AnyStr]]: ...
-@overload
-def search(pattern: Pattern[AnyStr], string: AnyStr, flags: _FlagsType = ...) -> Optional[Match[AnyStr]]: ...
-@overload
-def match(pattern: AnyStr, string: AnyStr, flags: _FlagsType = ...) -> Optional[Match[AnyStr]]: ...
-@overload
-def match(pattern: Pattern[AnyStr], string: AnyStr, flags: _FlagsType = ...) -> Optional[Match[AnyStr]]: ...
+def search(pattern: bytes | Pattern[bytes], string: ReadableBuffer, flags: _FlagsType = 0) -> Match[bytes] | None: ...
 
-# New in Python 3.4
 @overload
-def fullmatch(pattern: AnyStr, string: AnyStr, flags: _FlagsType = ...) -> Optional[Match[AnyStr]]: ...
+def match(pattern: str | Pattern[str], string: str, flags: _FlagsType = 0) -> Match[str] | None: ...
 @overload
-def fullmatch(pattern: Pattern[AnyStr], string: AnyStr, flags: _FlagsType = ...) -> Optional[Match[AnyStr]]: ...
-@overload
-def split(pattern: AnyStr, string: AnyStr, maxsplit: int = ..., flags: _FlagsType = ...) -> List[AnyStr]: ...
-@overload
-def split(pattern: Pattern[AnyStr], string: AnyStr, maxsplit: int = ..., flags: _FlagsType = ...) -> List[AnyStr]: ...
-@overload
-def findall(pattern: AnyStr, string: AnyStr, flags: _FlagsType = ...) -> List[Any]: ...
-@overload
-def findall(pattern: Pattern[AnyStr], string: AnyStr, flags: _FlagsType = ...) -> List[Any]: ...
+def match(pattern: bytes | Pattern[bytes], string: ReadableBuffer, flags: _FlagsType = 0) -> Match[bytes] | None: ...
 
-# Return an iterator yielding match objects over all non-overlapping matches
-# for the RE pattern in string. The string is scanned left-to-right, and
-# matches are returned in the order found. Empty matches are included in the
-# result unless they touch the beginning of another match.
+if sys.version_info >= (3, 15):
+    @overload
+    def prefixmatch(pattern: str | Pattern[str], string: str, flags: _FlagsType = 0) -> Match[str] | None: ...
+    @overload
+    def prefixmatch(pattern: bytes | Pattern[bytes], string: ReadableBuffer, flags: _FlagsType = 0) -> Match[bytes] | None: ...
+
 @overload
-def finditer(pattern: AnyStr, string: AnyStr, flags: _FlagsType = ...) -> Iterator[Match[AnyStr]]: ...
+def fullmatch(pattern: str | Pattern[str], string: str, flags: _FlagsType = 0) -> Match[str] | None: ...
 @overload
-def finditer(pattern: Pattern[AnyStr], string: AnyStr, flags: _FlagsType = ...) -> Iterator[Match[AnyStr]]: ...
+def fullmatch(pattern: bytes | Pattern[bytes], string: ReadableBuffer, flags: _FlagsType = 0) -> Match[bytes] | None: ...
+
 @overload
-def sub(pattern: AnyStr, repl: AnyStr, string: AnyStr, count: int = ..., flags: _FlagsType = ...) -> AnyStr: ...
+def split(pattern: str | Pattern[str], string: str, maxsplit: int = 0, flags: _FlagsType = 0) -> list[str | MaybeNone]: ...
+@overload
+def split(
+    pattern: bytes | Pattern[bytes], string: ReadableBuffer, maxsplit: int = 0, flags: _FlagsType = 0
+) -> list[bytes | MaybeNone]: ...
+
+# return type is either list[str/bytes] or list[tuple[str/bytes, ...]]
+@overload
+def findall(pattern: str | Pattern[str], string: str, flags: _FlagsType = 0) -> list[Any]: ...
+@overload
+def findall(pattern: bytes | Pattern[bytes], string: ReadableBuffer, flags: _FlagsType = 0) -> list[Any]: ...
+
+@overload
+def finditer(pattern: str | Pattern[str], string: str, flags: _FlagsType = 0) -> Iterator[Match[str]]: ...
+@overload
+def finditer(pattern: bytes | Pattern[bytes], string: ReadableBuffer, flags: _FlagsType = 0) -> Iterator[Match[bytes]]: ...
+
 @overload
 def sub(
-    pattern: AnyStr, repl: Callable[[Match[AnyStr]], AnyStr], string: AnyStr, count: int = ..., flags: _FlagsType = ...
-) -> AnyStr: ...
-@overload
-def sub(pattern: Pattern[AnyStr], repl: AnyStr, string: AnyStr, count: int = ..., flags: _FlagsType = ...) -> AnyStr: ...
+    pattern: str | Pattern[str], repl: str | Callable[[Match[str]], str], string: str, count: int = 0, flags: _FlagsType = 0
+) -> str: ...
 @overload
 def sub(
-    pattern: Pattern[AnyStr], repl: Callable[[Match[AnyStr]], AnyStr], string: AnyStr, count: int = ..., flags: _FlagsType = ...
-) -> AnyStr: ...
-@overload
-def subn(pattern: AnyStr, repl: AnyStr, string: AnyStr, count: int = ..., flags: _FlagsType = ...) -> Tuple[AnyStr, int]: ...
-@overload
-def subn(
-    pattern: AnyStr, repl: Callable[[Match[AnyStr]], AnyStr], string: AnyStr, count: int = ..., flags: _FlagsType = ...
-) -> Tuple[AnyStr, int]: ...
-@overload
-def subn(
-    pattern: Pattern[AnyStr], repl: AnyStr, string: AnyStr, count: int = ..., flags: _FlagsType = ...
-) -> Tuple[AnyStr, int]: ...
+    pattern: bytes | Pattern[bytes],
+    repl: ReadableBuffer | Callable[[Match[bytes]], ReadableBuffer],
+    string: ReadableBuffer,
+    count: int = 0,
+    flags: _FlagsType = 0,
+) -> bytes: ...
+
 @overload
 def subn(
-    pattern: Pattern[AnyStr], repl: Callable[[Match[AnyStr]], AnyStr], string: AnyStr, count: int = ..., flags: _FlagsType = ...
-) -> Tuple[AnyStr, int]: ...
+    pattern: str | Pattern[str], repl: str | Callable[[Match[str]], str], string: str, count: int = 0, flags: _FlagsType = 0
+) -> tuple[str, int]: ...
+@overload
+def subn(
+    pattern: bytes | Pattern[bytes],
+    repl: ReadableBuffer | Callable[[Match[bytes]], ReadableBuffer],
+    string: ReadableBuffer,
+    count: int = 0,
+    flags: _FlagsType = 0,
+) -> tuple[bytes, int]: ...
+
+@overload
 def escape(pattern: AnyStr) -> AnyStr: ...
+@overload
+def escape(pattern: ReadableBuffer) -> bytes: ...
+
 def purge() -> None: ...
-def template(pattern: Union[AnyStr, Pattern[AnyStr]], flags: _FlagsType = ...) -> Pattern[AnyStr]: ...
+
+if sys.version_info < (3, 13):
+    @deprecated("Deprecated; removed in Python 3.13. Use `re.compile()` instead.")
+    def template(pattern: AnyStr | Pattern[AnyStr], flags: _FlagsType = 0) -> Pattern[AnyStr]: ...  # undocumented

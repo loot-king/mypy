@@ -1,6 +1,8 @@
-from typing import Dict
+from typing import Final
 
-name2codepoint: Dict[str, int]
-html5: Dict[str, str]
-codepoint2name: Dict[int, str]
-entitydefs: Dict[str, str]
+__all__ = ["html5", "name2codepoint", "codepoint2name", "entitydefs"]
+
+name2codepoint: Final[dict[str, int]]
+html5: Final[dict[str, str]]
+codepoint2name: Final[dict[int, str]]
+entitydefs: Final[dict[str, str]]

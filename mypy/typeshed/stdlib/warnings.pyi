@@ -1,73 +1,146 @@
+import re
 import sys
-from types import ModuleType, TracebackType
-from typing import Any, List, Optional, TextIO, Type, Union, overload
-from typing_extensions import Literal
-
 from _warnings import warn as warn, warn_explicit as warn_explicit
+from collections.abc import Sequence
+from types import ModuleType, TracebackType
+from typing import Any, Generic, Literal, TextIO, TypeAlias, overload
+from typing_extensions import LiteralString, TypeVar
+
+__all__ = [
+    "warn",
+    "warn_explicit",
+    "showwarning",
+    "formatwarning",
+    "filterwarnings",
+    "simplefilter",
+    "resetwarnings",
+    "catch_warnings",
+]
+
+if sys.version_info >= (3, 13):
+    __all__ += ["deprecated"]
+
+_T = TypeVar("_T")
+_W_co = TypeVar("_W_co", bound=list[WarningMessage] | None, default=list[WarningMessage] | None, covariant=True)
+
+if sys.version_info >= (3, 14):
+    _ActionKind: TypeAlias = Literal["default", "error", "ignore", "always", "module", "once"]
+else:
+    _ActionKind: TypeAlias = Literal["default", "error", "ignore", "always", "all", "module", "once"]
+filters: Sequence[
+    tuple[str, re.Pattern[str] | None, type[Warning] | tuple[type[Warning], ...], re.Pattern[str] | None, int]
+]  # undocumented, do not mutate
 
 def showwarning(
-    message: Union[Warning, str],
-    category: Type[Warning],
+    message: Warning | str,
+    category: type[Warning],
     filename: str,
     lineno: int,
-    file: Optional[TextIO] = ...,
-    line: Optional[str] = ...,
+    file: TextIO | None = None,
+    line: str | None = None,
 ) -> None: ...
 def formatwarning(
-    message: Union[Warning, str], category: Type[Warning], filename: str, lineno: int, line: Optional[str] = ...
+    message: Warning | str, category: type[Warning], filename: str, lineno: int, line: str | None = None
 ) -> str: ...
 def filterwarnings(
-    action: str, message: str = ..., category: Type[Warning] = ..., module: str = ..., lineno: int = ..., append: bool = ...
+    action: _ActionKind, message: str = "", category: type[Warning] = ..., module: str = "", lineno: int = 0, append: bool = False
 ) -> None: ...
-def simplefilter(action: str, category: Type[Warning] = ..., lineno: int = ..., append: bool = ...) -> None: ...
+def simplefilter(
+    action: _ActionKind, category: type[Warning] | tuple[type[Warning], ...] = ..., lineno: int = 0, append: bool = False
+) -> None: ...
 def resetwarnings() -> None: ...
 
 class _OptionError(Exception): ...
 
 class WarningMessage:
-    message: Union[Warning, str]
-    category: Type[Warning]
+    message: Warning | str
+    category: type[Warning]
     filename: str
     lineno: int
-    file: Optional[TextIO]
-    line: Optional[str]
-    if sys.version_info >= (3, 6):
-        source: Optional[Any]
+    file: TextIO | None
+    line: str | None
+    source: Any | None
+    if sys.version_info >= (3, 15):
+        module: str | None
+    if sys.version_info >= (3, 15):
         def __init__(
             self,
-            message: Union[Warning, str],
-            category: Type[Warning],
+            message: Warning | str,
+            category: type[Warning],
             filename: str,
             lineno: int,
-            file: Optional[TextIO] = ...,
-            line: Optional[str] = ...,
-            source: Optional[Any] = ...,
+            file: TextIO | None = None,
+            line: str | None = None,
+            source: Any | None = None,
+            module: str | None = None,
         ) -> None: ...
+
     else:
         def __init__(
             self,
-            message: Union[Warning, str],
-            category: Type[Warning],
+            message: Warning | str,
+            category: type[Warning],
             filename: str,
             lineno: int,
-            file: Optional[TextIO] = ...,
-            line: Optional[str] = ...,
+            file: TextIO | None = None,
+            line: str | None = None,
+            source: Any | None = None,
         ) -> None: ...
 
-class catch_warnings:
-    @overload
-    def __new__(cls, *, record: Literal[False] = ..., module: Optional[ModuleType] = ...) -> _catch_warnings_without_records: ...
-    @overload
-    def __new__(cls, *, record: Literal[True], module: Optional[ModuleType] = ...) -> _catch_warnings_with_records: ...
-    @overload
-    def __new__(cls, *, record: bool, module: Optional[ModuleType] = ...) -> catch_warnings: ...
-    def __enter__(self) -> Optional[List[WarningMessage]]: ...
+class catch_warnings(Generic[_W_co]):
+    if sys.version_info >= (3, 11):
+        @overload
+        def __init__(
+            self: catch_warnings[None],
+            *,
+            record: Literal[False] = False,
+            module: ModuleType | None = None,
+            action: _ActionKind | None = None,
+            category: type[Warning] | tuple[type[Warning], ...] = ...,
+            lineno: int = 0,
+            append: bool = False,
+        ) -> None: ...
+        @overload
+        def __init__(
+            self: catch_warnings[list[WarningMessage]],
+            *,
+            record: Literal[True],
+            module: ModuleType | None = None,
+            action: _ActionKind | None = None,
+            category: type[Warning] | tuple[type[Warning], ...] = ...,
+            lineno: int = 0,
+            append: bool = False,
+        ) -> None: ...
+        @overload
+        def __init__(
+            self,
+            *,
+            record: bool,
+            module: ModuleType | None = None,
+            action: _ActionKind | None = None,
+            category: type[Warning] | tuple[type[Warning], ...] = ...,
+            lineno: int = 0,
+            append: bool = False,
+        ) -> None: ...
+    else:
+        @overload
+        def __init__(self: catch_warnings[None], *, record: Literal[False] = False, module: ModuleType | None = None) -> None: ...
+        @overload
+        def __init__(
+            self: catch_warnings[list[WarningMessage]], *, record: Literal[True], module: ModuleType | None = None
+        ) -> None: ...
+        @overload
+        def __init__(self, *, record: bool, module: ModuleType | None = None) -> None: ...
+
+    def __enter__(self) -> _W_co: ...
     def __exit__(
-        self, exc_type: Optional[Type[BaseException]], exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None: ...
 
-class _catch_warnings_without_records(catch_warnings):
-    def __enter__(self) -> None: ...
-
-class _catch_warnings_with_records(catch_warnings):
-    def __enter__(self) -> List[WarningMessage]: ...
+if sys.version_info >= (3, 13):
+    class deprecated:
+        message: LiteralString
+        category: type[Warning] | None
+        stacklevel: int
+        def __init__(self, message: LiteralString, /, *, category: type[Warning] | None = ..., stacklevel: int = 1) -> None: ...
+        def __call__(self, arg: _T, /) -> _T: ...

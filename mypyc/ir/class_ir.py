@@ -1,15 +1,14 @@
 """Intermediate representation of classes."""
 
-from typing import List, Optional, Set, Tuple, Dict, NamedTuple
-from mypy.ordered_dict import OrderedDict
+from __future__ import annotations
 
-from mypyc.common import JsonDict
-from mypyc.ir.ops import Value, DeserMaps
-from mypyc.ir.rtypes import RType, RInstance, deserialize_type
-from mypyc.ir.func_ir import FuncIR, FuncDecl, FuncSignature
+from typing import NamedTuple
+
+from mypyc.common import PROPSET_PREFIX, JsonDict
+from mypyc.ir.func_ir import FuncDecl, FuncIR, FuncSignature, RuntimeArg
+from mypyc.ir.ops import DeserMaps, Value
+from mypyc.ir.rtypes import RInstance, RType, c_int_rprimitive, deserialize_type, object_rprimitive
 from mypyc.namegen import NameGenerator, exported_name
-from mypyc.common import PROPSET_PREFIX
-
 
 # Some notes on the vtable layout: Each concrete class has a vtable
 # that contains function pointers for its methods. So that subclasses
@@ -18,7 +17,7 @@ from mypyc.common import PROPSET_PREFIX
 # vtable.
 #
 # This makes multiple inheritance tricky, since obviously we cannot be
-# an extension of multiple parent classes. We solve this by requriing
+# an extension of multiple parent classes. We solve this by requiring
 # all but one parent to be "traits", which we can operate on in a
 # somewhat less efficient way. For each trait implemented by a class,
 # we generate a separate vtable for the methods in that trait.
@@ -69,13 +68,15 @@ from mypyc.common import PROPSET_PREFIX
 # The 'shadow_method', if present, contains the method that should be
 # placed in the class's shadow vtable (if it has one).
 
-VTableMethod = NamedTuple(
-    'VTableMethod', [('cls', 'ClassIR'),
-                     ('name', str),
-                     ('method', FuncIR),
-                     ('shadow_method', Optional[FuncIR])])
 
-VTableEntries = List[VTableMethod]
+class VTableMethod(NamedTuple):
+    cls: "ClassIR"  # noqa: UP037
+    name: str
+    method: FuncIR
+    shadow_method: FuncIR | None
+
+
+VTableEntries = list[VTableMethod]
 
 
 class ClassIR:
@@ -84,74 +85,205 @@ class ClassIR:
     This also describes the runtime structure of native instances.
     """
 
-    def __init__(self, name: str, module_name: str, is_trait: bool = False,
-                 is_generated: bool = False, is_abstract: bool = False,
-                 is_ext_class: bool = True) -> None:
+    def __init__(
+        self,
+        name: str,
+        module_name: str,
+        is_trait: bool = False,
+        is_generated: bool = False,
+        is_abstract: bool = False,
+        is_ext_class: bool = True,
+        is_final_class: bool = False,
+    ) -> None:
         self.name = name
         self.module_name = module_name
         self.is_trait = is_trait
         self.is_generated = is_generated
         self.is_abstract = is_abstract
         self.is_ext_class = is_ext_class
+        self.is_final_class = is_final_class
         # An augmented class has additional methods separate from what mypyc generates.
         # Right now the only one is dataclasses.
         self.is_augmented = False
+        # Does this (non-extension) class have class decorators other than the ones native
+        # classes support? These can replace the class with an arbitrary object, such as a
+        # functools.cache wrapper, so the name of the class may not refer to the class.
+        self.is_decorated = False
         # Does this inherit from a Python class?
         self.inherits_python = False
+        # Is weak reference support explicitly requested via @mypyc_attr(weakrefs=True)?
+        # Use supports_weakrefs() to also consider base classes.
+        self._weakrefs = False
         # Do instances of this class have __dict__?
         self.has_dict = False
         # Do we allow interpreted subclasses? Derived from a mypyc_attr.
         self.allow_interpreted_subclasses = False
+        # Does this class need getseters to be generated for its attributes? (getseters are also
+        # added if is_generated is False)
+        self.needs_getseters = False
+        # Is this class declared as serializable (supports copy.copy
+        # and pickle) using @mypyc_attr(serializable=True)?
+        #
+        # Additionally, any class with this attribute False but with
+        # an __init__ that can be called without any arguments is
+        # *implicitly serializable*. In this case __init__ will be
+        # called during deserialization without arguments. If this is
+        # True, we match Python semantics and __init__ won't be called
+        # during deserialization.
+        #
+        # This impacts also all subclasses. Use is_serializable() to
+        # also consider base classes.
+        self._serializable = False
         # If this a subclass of some built-in python class, the name
         # of the object for that class. We currently only support this
         # in a few ad-hoc cases.
-        self.builtin_base = None  # type: Optional[str]
+        self.builtin_base: str | None = None
         # Default empty constructor
         self.ctor = FuncDecl(name, None, module_name, FuncSignature([], RInstance(self)))
-
-        self.attributes = OrderedDict()  # type: OrderedDict[str, RType]
+        # Declare setup method that allocates and initializes an object. type is the
+        # type of the class being initialized, which could be another class if there
+        # is an interpreted subclass.
+        # TODO: Make it a regular method and generate its body in IR
+        self.setup = FuncDecl(
+            "__mypyc__" + name + "_setup",
+            None,
+            module_name,
+            FuncSignature([RuntimeArg("type", object_rprimitive)], RInstance(self)),
+        )
+        self.clear = FuncDecl(
+            name + "_clear",
+            None,
+            module_name,
+            FuncSignature([RuntimeArg("self", RInstance(self))], c_int_rprimitive),
+            internal=True,
+        )
+        self.clear_on_completion = FuncDecl(
+            name + "_clear_on_completion",
+            None,
+            module_name,
+            FuncSignature([RuntimeArg("self", RInstance(self))], c_int_rprimitive),
+            internal=True,
+        )
+        # Attributes defined in the class (not inherited)
+        self.attributes: dict[str, RType] = {}
+        # Attributes that must survive generator/coroutine completion because
+        # escaped nested functions may still read them as closure variables.
+        self.attrs_to_keep_alive_on_completion: set[str] = set()
+        # Final attributes initialized in the __init__ method (not inherited)
+        self.final_attributes: set[str] = set()
+        # Final attributes defined in class body as "X: Final = <value>" (not inherited).
+        # They get no slot in the instance struct. The value lives in a module-level static.
+        self.class_final_attributes: dict[str, RType] = {}
+        # Deletable attributes
+        self.deletable: list[str] = []
         # We populate method_types with the signatures of every method before
         # we generate methods, and we rely on this information being present.
-        self.method_decls = OrderedDict()  # type: OrderedDict[str, FuncDecl]
+        self.method_decls: dict[str, FuncDecl] = {}
         # Map of methods that are actually present in an extension class
-        self.methods = OrderedDict()  # type: OrderedDict[str, FuncIR]
+        self.methods: dict[str, FuncIR] = {}
         # Glue methods for boxing/unboxing when a class changes the type
-        # while overriding a method. Maps from (parent class overrided, method)
+        # while overriding a method. Maps from (parent class overridden, method)
         # to IR of glue method.
-        self.glue_methods = OrderedDict()  # type: Dict[Tuple[ClassIR, str], FuncIR]
+        self.glue_methods: dict[tuple[ClassIR, str], FuncIR] = {}
 
         # Properties are accessed like attributes, but have behavior like method calls.
         # They don't belong in the methods dictionary, since we don't want to expose them to
         # Python's method API. But we want to put them into our own vtable as methods, so that
         # they are properly handled and overridden. The property dictionary values are a tuple
         # containing a property getter and an optional property setter.
-        self.properties = OrderedDict()  # type: OrderedDict[str, Tuple[FuncIR, Optional[FuncIR]]]
+        self.properties: dict[str, tuple[FuncIR, FuncIR | None]] = {}
         # We generate these in prepare_class_def so that we have access to them when generating
         # other methods and properties that rely on these types.
-        self.property_types = OrderedDict()  # type: OrderedDict[str, RType]
+        self.property_types: dict[str, RType] = {}
 
-        self.vtable = None  # type: Optional[Dict[str, int]]
-        self.vtable_entries = []  # type: VTableEntries
-        self.trait_vtables = OrderedDict()  # type: OrderedDict[ClassIR, VTableEntries]
+        self.vtable: dict[str, int] | None = None
+        self.vtable_entries: VTableEntries = []
+        self.trait_vtables: dict[ClassIR, VTableEntries] = {}
         # N.B: base might not actually quite be the direct base.
         # It is the nearest concrete base, but we allow a trait in between.
-        self.base = None  # type: Optional[ClassIR]
-        self.traits = []  # type: List[ClassIR]
+        self.base: ClassIR | None = None
+        self.traits: list[ClassIR] = []
         # Supply a working mro for most generated classes. Real classes will need to
         # fix it up.
-        self.mro = [self]  # type: List[ClassIR]
+        self.mro: list[ClassIR] = [self]
         # base_mro is the chain of concrete (non-trait) ancestors
-        self.base_mro = [self]  # type: List[ClassIR]
+        self.base_mro: list[ClassIR] = [self]
 
-        # Direct subclasses of this class (use subclasses() to also incude non-direct ones)
-        # None if separate compilation prevents this from working
-        self.children = []  # type: Optional[List[ClassIR]]
+        # Direct subclasses of this class (use subclasses() to also include non-direct ones)
+        # None if separate compilation prevents this from working.
+        #
+        # Often it's better to use has_no_subclasses() or subclasses() instead.
+        self.children: list[ClassIR] | None = []
+
+        # Instance attributes that are initialized in the class body.
+        self.attrs_with_defaults: set[str] = set()
+
+        # Attributes that are always initialized in __init__ or class body
+        # (inferred in mypyc.analysis.attrdefined using interprocedural analysis).
+        # These can never raise AttributeError when accessed. If an attribute
+        # is *not* always initialized, we normally use the error value for
+        # an undefined value. If the attribute byte has an overlapping error value
+        # (the error_overlap attribute is true for the RType), we use a bitmap
+        # to track if the attribute is defined instead (see bitmap_attrs).
+        self._always_initialized_attrs: set[str] = set()
+
+        # Attributes that are sometimes initialized in __init__
+        self._sometimes_initialized_attrs: set[str] = set()
+
+        # If True, __init__ can make 'self' visible to unanalyzed/arbitrary code
+        self.init_self_leak = False
+
+        # Definedness of these attributes is backed by a bitmap. Index in the list
+        # indicates the bit number. Includes inherited attributes. We need the
+        # bitmap for types such as native ints (i64 etc.) that can't have a dedicated
+        # error value that doesn't overlap a valid value. The bitmap is used if the
+        # value of an attribute is the same as the error value.
+        self.bitmap_attrs: list[str] = []
+
+        # If this class owns a generator helper's compiler-generated spill slots, what is the
+        # actual helper method for it.
+        self.env_user_function: FuncIR | None = None
+
+        # If True, keep one freed, cleared instance available for immediate reuse to
+        # speed up allocations. This helps if many objects are freed quickly, before
+        # other instances of the same class are allocated. This is effectively a
+        # per-type free "list" of up to length 1.
+        self.reuse_freed_instance = False
+
+        # If True, the class does not participate in cyclic garbage collection.
+        # This can improve performance but is only safe if instances can never
+        # be part of reference cycles. Derived from @mypyc_attr(acyclic=True).
+        self.is_acyclic = False
+
+        # Is this a class inheriting from enum.Enum? Such classes can be special-cased.
+        self.is_enum = False
+
+        # Name of the function if this a callable class representing a coroutine.
+        self.coroutine_name: str | None = None
+
+        # Does this generator or coroutine helper serialize execution using an instance flag?
+        self.has_running_flag = False
+
+        # Are this generator object's implementation attributes only accessed while its
+        # running flag is held (or before publication/during destruction)? This also applies
+        # when captured source variables live in a separate environment object.
+        self.has_private_generator_frame = False
+
+    def __repr__(self) -> str:
+        return (
+            "ClassIR("
+            "name={self.name}, module_name={self.module_name}, "
+            "is_trait={self.is_trait}, is_generated={self.is_generated}, "
+            "is_abstract={self.is_abstract}, is_ext_class={self.is_ext_class}, "
+            "is_final_class={self.is_final_class}"
+            ")".format(self=self)
+        )
 
     @property
     def fullname(self) -> str:
-        return "{}.{}".format(self.module_name, self.name)
+        return f"{self.module_name}.{self.name}"
 
-    def real_base(self) -> Optional['ClassIR']:
+    def real_base(self) -> ClassIR | None:
         """Return the actual concrete base class, if there is one."""
         if len(self.mro) > 1 and not self.mro[1].is_trait:
             return self.mro[1]
@@ -159,25 +291,85 @@ class ClassIR:
 
     def vtable_entry(self, name: str) -> int:
         assert self.vtable is not None, "vtable not computed yet"
-        assert name in self.vtable, '%r has no attribute %r' % (self.name, name)
+        assert name in self.vtable, f"{self.name!r} has no attribute {name!r}"
         return self.vtable[name]
 
-    def attr_details(self, name: str) -> Tuple[RType, 'ClassIR']:
+    def attr_details(self, name: str) -> tuple[RType, ClassIR]:
         for ir in self.mro:
             if name in ir.attributes:
                 return ir.attributes[name], ir
             if name in ir.property_types:
                 return ir.property_types[name], ir
-        raise KeyError('%r has no attribute %r' % (self.name, name))
+        raise KeyError(f"{self.name!r} has no attribute {name!r}")
 
     def attr_type(self, name: str) -> RType:
         return self.attr_details(name)[0]
+
+    def is_final_attr(self, name: str) -> bool:
+        """Is the (possibly inherited) attribute Final, i.e. never rebound?
+
+        A Final attribute is read-only at runtime (it has no setter) and is assigned
+        exactly once during construction, so it can never be reassigned afterwards.
+        This makes it safe to borrow on free-threaded builds (no concurrent store can
+        invalidate a borrowed reference) and lets reads skip the concurrent-writer
+        guard. Returns False for properties and for attributes this class doesn't have.
+        """
+        for ir in self.mro:
+            if name in ir.attributes:
+                return name in ir.final_attributes
+            if name in ir.property_types:
+                return False
+        return False
+
+    @property
+    def needs_getseters_table(self) -> bool:
+        """Do we generate a tp_getset table exposing the attributes to Python?"""
+        return (
+            self.needs_getseters
+            or not self.is_generated
+            or self.has_dict
+            # For the __weakref__ getset
+            or self.has_weakref_list()
+        )
+
+    def attrs_are_thread_confined(self) -> bool:
+        """Can these attributes safely use plain access in free-threaded builds?
+
+        This requires the attributes to belong to a private generator frame, execution to
+        be serialized by its running flag, and no Python getseters exposing the attributes.
+        Captured locals in a separate environment don't qualify, since nested functions may
+        access them independently.
+        """
+        return (
+            self.has_private_generator_frame
+            and self.has_running_flag
+            and not self.needs_getseters_table
+        )
+
+    def class_final_attr_details(self, name: str) -> tuple[RType, ClassIR] | None:
+        """Look up a (possibly inherited) class-body Final attribute.
+
+        Returns the attribute type and the class that defines it, or None if this
+        class has no such attribute. The defining class is what identifies the
+        static holding the value, so callers need it to build the static's name.
+
+        Deliberately kept out of attr_details()/has_attr(): these attributes have no
+        instance slot, so callers that want to read or write one must not treat them
+        as ordinary attributes.
+        """
+        for ir in self.mro:
+            if name in ir.class_final_attributes:
+                return ir.class_final_attributes[name], ir
+            if name in ir.attributes or name in ir.property_types:
+                # Shadowed by a real attribute or property closer in the MRO.
+                return None
+        return None
 
     def method_decl(self, name: str) -> FuncDecl:
         for ir in self.mro:
             if name in ir.method_decls:
                 return ir.method_decls[name]
-        raise KeyError('%r has no attribute %r' % (self.name, name))
+        raise KeyError(f"{self.name!r} has no attribute {name!r}")
 
     def method_sig(self, name: str) -> FuncSignature:
         return self.method_decl(name).sig
@@ -190,13 +382,21 @@ class ClassIR:
         return True
 
     def is_method_final(self, name: str) -> bool:
+        method_decl: FuncDecl | None = None
+        try:
+            method_decl = self.method_decl(name)
+        except KeyError:
+            pass
+        # A declared @final method cannot be overridden in checked code. Trust
+        # this even when interpreted subclasses cannot be enumerated.
+        if method_decl is not None and method_decl.is_final:
+            return True
+
         subs = self.subclasses()
         if subs is None:
-            # TODO: Look at the final attribute!
-            return False
+            return self.is_final_class
 
-        if self.has_method(name):
-            method_decl = self.method_decl(name)
+        if method_decl is not None:
             for subc in subs:
                 if subc.method_decl(name) != method_decl:
                     return False
@@ -211,25 +411,70 @@ class ClassIR:
             return False
         return True
 
+    def is_deletable(self, name: str) -> bool:
+        return any(name in ir.deletable for ir in self.mro)
+
+    def is_always_defined(self, name: str) -> bool:
+        if self.is_deletable(name):
+            return False
+        return name in self._always_initialized_attrs
+
     def name_prefix(self, names: NameGenerator) -> str:
         return names.private_name(self.module_name, self.name)
 
     def struct_name(self, names: NameGenerator) -> str:
-        return '{}Object'.format(exported_name(self.fullname))
+        return f"{exported_name(self.fullname)}Object"
 
-    def get_method_and_class(self, name: str) -> Optional[Tuple[FuncIR, 'ClassIR']]:
+    def get_method_and_class(
+        self, name: str, *, prefer_method: bool = False
+    ) -> tuple[FuncIR, ClassIR] | None:
         for ir in self.mro:
             if name in ir.methods:
-                return ir.methods[name], ir
+                func_ir = ir.methods[name]
+                if not prefer_method and func_ir.decl.implicit:
+                    # This is an implicit accessor, so there is also an attribute definition
+                    # which the caller prefers. This happens if an attribute overrides a
+                    # property.
+                    return None
+                return func_ir, ir
 
         return None
 
-    def get_method(self, name: str) -> Optional[FuncIR]:
-        res = self.get_method_and_class(name)
+    def get_method(self, name: str, *, prefer_method: bool = False) -> FuncIR | None:
+        res = self.get_method_and_class(name, prefer_method=prefer_method)
         return res[0] if res else None
 
-    def subclasses(self) -> Optional[Set['ClassIR']]:
-        """Return all subclassses of this class, both direct and indirect.
+    def get_native_init(self) -> FuncIR | None:
+        """Return the __init__ method that is called natively to initialize instances, if any.
+
+        A decorated __init__ isn't one. Like any decorated method it has no method
+        declaration, since only the decorated callable in the type dict can be called.
+        Instances are then initialized through tp_init, as if __init__ wasn't native.
+        """
+        res = self.get_method_and_class("__init__")
+        if res is None or "__init__" not in res[1].method_decls:
+            return None
+        return res[0]
+
+    def has_method_decl(self, name: str) -> bool:
+        return any(name in ir.method_decls for ir in self.mro)
+
+    def has_non_native_new(self) -> bool:
+        """Are instances created by a __new__ method that isn't called natively?
+
+        A decorated __new__ is one. Like any decorated method it has no method
+        declaration, since only the decorated callable in the type dict can be called.
+        Instances are then created like instances of a Python class: tp_new looks up
+        __new__ in the type dict, and tp_init calls __init__.
+        """
+        res = self.get_method_and_class("__new__")
+        return res is not None and "__new__" not in res[1].method_decls
+
+    def has_no_subclasses(self) -> bool:
+        return self.children == [] and not self.allow_interpreted_subclasses
+
+    def subclasses(self) -> set[ClassIR] | None:
+        """Return all subclasses of this class, both direct and indirect.
 
         Return None if it is impossible to identify all subclasses, for example
         because we are performing separate compilation.
@@ -245,7 +490,7 @@ class ClassIR:
                 result.update(child_subs)
         return result
 
-    def concrete_subclasses(self) -> Optional[List['ClassIR']]:
+    def concrete_subclasses(self) -> list[ClassIR] | None:
         """Return all concrete (i.e. non-trait and non-abstract) subclasses.
 
         Include both direct and indirect subclasses. Place classes with no children first.
@@ -255,103 +500,194 @@ class ClassIR:
             return None
         concrete = {c for c in subs if not (c.is_trait or c.is_abstract)}
         # We place classes with no children first because they are more likely
-        # to appear in various isinstance() checks. We then sort leafs by name
+        # to appear in various isinstance() checks. We then sort leaves by name
         # to get stable order.
         return sorted(concrete, key=lambda c: (len(c.children or []), c.name))
 
+    def is_serializable(self) -> bool:
+        return any(ci._serializable for ci in self.mro)
+
+    def supports_weakrefs(self) -> bool:
+        """Can weak references to instances of this class be created?
+
+        Native classes only support weak references if requested using
+        @mypyc_attr(weakrefs=True), since it has a per-instance memory cost. Like
+        Python subclasses, native subclasses of non-native classes always support weak
+        references, whether or not the base class does, since they already have
+        __dict__ storage, and adding weak reference storage next to it is free.
+        Subclasses of built-in types (such as Exception or dict) don't support weak
+        references yet.
+        """
+        if not self.is_ext_class:
+            # Non-native classes are ordinary heap types, so they always work.
+            return True
+        if self.builtin_base:
+            return False
+        return self.inherits_python or any(ci._weakrefs for ci in self.mro)
+
+    def has_weakref_list(self) -> bool:
+        """Is this a native class with instances that have a weak reference list?
+
+        This is false for non-native classes, even though they support weak
+        references, since CPython manages the list for them. For native classes, the
+        list is either a field of the object struct (see has_weakref_slot()), or
+        it's stored next to __dict__ (at tp_weaklistoffset): either right after the
+        object struct (before 3.12) or in the managed pre-header (3.12+).
+        """
+        return self.is_ext_class and not self.is_trait and self.supports_weakrefs()
+
+    def has_weakref_slot(self) -> bool:
+        """Is the weak reference list stored in a field of the object struct?
+
+        Otherwise the list is stored next to __dict__, if weak references are
+        supported. A native base class that uses the field determines the offset of
+        the list in all subclasses.
+        """
+        return (
+            self.is_ext_class
+            and not self.is_trait
+            and not self.builtin_base
+            and any(ci._weakrefs and not ci.inherits_python for ci in self.mro)
+        )
+
     def serialize(self) -> JsonDict:
         return {
-            'name': self.name,
-            'module_name': self.module_name,
-            'is_trait': self.is_trait,
-            'is_ext_class': self.is_ext_class,
-            'is_abstract': self.is_abstract,
-            'is_generated': self.is_generated,
-            'is_augmented': self.is_augmented,
-            'inherits_python': self.inherits_python,
-            'has_dict': self.has_dict,
-            'allow_interpreted_subclasses': self.allow_interpreted_subclasses,
-            'builtin_base': self.builtin_base,
-            'ctor': self.ctor.serialize(),
+            "name": self.name,
+            "module_name": self.module_name,
+            "is_trait": self.is_trait,
+            "is_ext_class": self.is_ext_class,
+            "is_abstract": self.is_abstract,
+            "is_generated": self.is_generated,
+            "is_augmented": self.is_augmented,
+            "is_decorated": self.is_decorated,
+            "is_final_class": self.is_final_class,
+            "inherits_python": self.inherits_python,
+            "_weakrefs": self._weakrefs,
+            "has_dict": self.has_dict,
+            "allow_interpreted_subclasses": self.allow_interpreted_subclasses,
+            "needs_getseters": self.needs_getseters,
+            "_serializable": self._serializable,
+            "builtin_base": self.builtin_base,
+            "ctor": self.ctor.serialize(),
+            "clear": self.clear.serialize(),
+            "clear_on_completion": self.clear_on_completion.serialize(),
             # We serialize dicts as lists to ensure order is preserved
-            'attributes': [(k, t.serialize()) for k, t in self.attributes.items()],
+            "attributes": [(k, t.serialize()) for k, t in self.attributes.items()],
+            "attrs_to_keep_alive_on_completion": sorted(self.attrs_to_keep_alive_on_completion),
+            "final_attributes": sorted(self.final_attributes),
+            "class_final_attributes": [
+                (k, t.serialize()) for k, t in self.class_final_attributes.items()
+            ],
             # We try to serialize a name reference, but if the decl isn't in methods
             # then we can't be sure that will work so we serialize the whole decl.
-            'method_decls': [(k, d.fullname if k in self.methods else d.serialize())
-                             for k, d in self.method_decls.items()],
-            # We serialize method fullnames out and put methods in a separate dict
-            'methods': [(k, m.fullname) for k, m in self.methods.items()],
-            'glue_methods': [
-                ((cir.fullname, k), m.fullname)
-                for (cir, k), m in self.glue_methods.items()
+            "method_decls": [
+                (k, d.id if k in self.methods else d.serialize())
+                for k, d in self.method_decls.items()
             ],
-
+            # We serialize method fullnames out and put methods in a separate dict
+            "methods": [(k, m.id) for k, m in self.methods.items()],
+            "glue_methods": [
+                ((cir.fullname, k), m.id) for (cir, k), m in self.glue_methods.items()
+            ],
             # We serialize properties and property_types separately out of an
             # abundance of caution about preserving dict ordering...
-            'property_types': [(k, t.serialize()) for k, t in self.property_types.items()],
-            'properties': list(self.properties),
-
-            'vtable': self.vtable,
-            'vtable_entries': serialize_vtable(self.vtable_entries),
-            'trait_vtables': [
+            "property_types": [(k, t.serialize()) for k, t in self.property_types.items()],
+            "properties": list(self.properties),
+            "vtable": self.vtable,
+            "vtable_entries": serialize_vtable(self.vtable_entries),
+            "trait_vtables": [
                 (cir.fullname, serialize_vtable(v)) for cir, v in self.trait_vtables.items()
             ],
-
             # References to class IRs are all just names
-            'base': self.base.fullname if self.base else None,
-            'traits': [cir.fullname for cir in self.traits],
-            'mro': [cir.fullname for cir in self.mro],
-            'base_mro': [cir.fullname for cir in self.base_mro],
-            'children': [
-                cir.fullname for cir in self.children
-            ] if self.children is not None else None,
+            "base": self.base.fullname if self.base else None,
+            "traits": [cir.fullname for cir in self.traits],
+            "mro": [cir.fullname for cir in self.mro],
+            "base_mro": [cir.fullname for cir in self.base_mro],
+            "children": (
+                [cir.fullname for cir in self.children] if self.children is not None else None
+            ),
+            "deletable": self.deletable,
+            "attrs_with_defaults": sorted(self.attrs_with_defaults),
+            "_always_initialized_attrs": sorted(self._always_initialized_attrs),
+            "_sometimes_initialized_attrs": sorted(self._sometimes_initialized_attrs),
+            "init_self_leak": self.init_self_leak,
+            "env_user_function": self.env_user_function.id if self.env_user_function else None,
+            "reuse_freed_instance": self.reuse_freed_instance,
+            "has_running_flag": self.has_running_flag,
+            "has_private_generator_frame": self.has_private_generator_frame,
+            "is_acyclic": self.is_acyclic,
+            "is_enum": self.is_enum,
+            "is_coroutine": self.coroutine_name,
         }
 
     @classmethod
-    def deserialize(cls, data: JsonDict, ctx: 'DeserMaps') -> 'ClassIR':
-        fullname = data['module_name'] + '.' + data['name']
+    def deserialize(cls, data: JsonDict, ctx: DeserMaps) -> ClassIR:
+        fullname = data["module_name"] + "." + data["name"]
         assert fullname in ctx.classes, "Class %s not in deser class map" % fullname
         ir = ctx.classes[fullname]
 
-        ir.is_trait = data['is_trait']
-        ir.is_generated = data['is_generated']
-        ir.is_abstract = data['is_abstract']
-        ir.is_ext_class = data['is_ext_class']
-        ir.is_augmented = data['is_augmented']
-        ir.inherits_python = data['inherits_python']
-        ir.has_dict = data['has_dict']
-        ir.allow_interpreted_subclasses = data['allow_interpreted_subclasses']
-        ir.builtin_base = data['builtin_base']
-        ir.ctor = FuncDecl.deserialize(data['ctor'], ctx)
-        ir.attributes = OrderedDict(
-            (k, deserialize_type(t, ctx)) for k, t in data['attributes']
-        )
-        ir.method_decls = OrderedDict((k, ctx.functions[v].decl
-                                       if isinstance(v, str) else FuncDecl.deserialize(v, ctx))
-                                      for k, v in data['method_decls'])
-        ir.methods = OrderedDict((k, ctx.functions[v]) for k, v in data['methods'])
-        ir.glue_methods = OrderedDict(
-            ((ctx.classes[c], k), ctx.functions[v]) for (c, k), v in data['glue_methods']
-        )
-        ir.property_types = OrderedDict(
-            (k, deserialize_type(t, ctx)) for k, t in data['property_types']
-        )
-        ir.properties = OrderedDict(
-            (k, (ir.methods[k], ir.methods.get(PROPSET_PREFIX + k))) for k in data['properties']
-        )
+        ir.is_trait = data["is_trait"]
+        ir.is_generated = data["is_generated"]
+        ir.is_abstract = data["is_abstract"]
+        ir.is_ext_class = data["is_ext_class"]
+        ir.is_augmented = data["is_augmented"]
+        ir.is_decorated = data["is_decorated"]
+        ir.is_final_class = data["is_final_class"]
+        ir.inherits_python = data["inherits_python"]
+        ir._weakrefs = data["_weakrefs"]
+        ir.has_dict = data["has_dict"]
+        ir.allow_interpreted_subclasses = data["allow_interpreted_subclasses"]
+        ir.needs_getseters = data["needs_getseters"]
+        ir._serializable = data["_serializable"]
+        ir.builtin_base = data["builtin_base"]
+        ir.ctor = FuncDecl.deserialize(data["ctor"], ctx)
+        ir.clear = FuncDecl.deserialize(data["clear"], ctx)
+        ir.clear_on_completion = FuncDecl.deserialize(data["clear_on_completion"], ctx)
+        ir.attributes = {k: deserialize_type(t, ctx) for k, t in data["attributes"]}
+        ir.attrs_to_keep_alive_on_completion = set(data["attrs_to_keep_alive_on_completion"])
+        ir.final_attributes = set(data["final_attributes"])
+        ir.class_final_attributes = {
+            k: deserialize_type(t, ctx) for k, t in data["class_final_attributes"]
+        }
+        ir.method_decls = {
+            k: ctx.functions[v].decl if isinstance(v, str) else FuncDecl.deserialize(v, ctx)
+            for k, v in data["method_decls"]
+        }
+        ir.methods = {k: ctx.functions[v] for k, v in data["methods"]}
+        ir.glue_methods = {
+            (ctx.classes[c], k): ctx.functions[v] for (c, k), v in data["glue_methods"]
+        }
+        ir.property_types = {k: deserialize_type(t, ctx) for k, t in data["property_types"]}
+        ir.properties = {
+            k: (ir.methods[k], ir.methods.get(PROPSET_PREFIX + k)) for k in data["properties"]
+        }
 
-        ir.vtable = data['vtable']
-        ir.vtable_entries = deserialize_vtable(data['vtable_entries'], ctx)
-        ir.trait_vtables = OrderedDict(
-            (ctx.classes[k], deserialize_vtable(v, ctx)) for k, v in data['trait_vtables']
-        )
+        ir.vtable = data["vtable"]
+        ir.vtable_entries = deserialize_vtable(data["vtable_entries"], ctx)
+        ir.trait_vtables = {
+            ctx.classes[k]: deserialize_vtable(v, ctx) for k, v in data["trait_vtables"]
+        }
 
-        base = data['base']
+        base = data["base"]
         ir.base = ctx.classes[base] if base else None
-        ir.traits = [ctx.classes[s] for s in data['traits']]
-        ir.mro = [ctx.classes[s] for s in data['mro']]
-        ir.base_mro = [ctx.classes[s] for s in data['base_mro']]
-        ir.children = data['children'] and [ctx.classes[s] for s in data['children']]
+        ir.traits = [ctx.classes[s] for s in data["traits"]]
+        ir.mro = [ctx.classes[s] for s in data["mro"]]
+        ir.base_mro = [ctx.classes[s] for s in data["base_mro"]]
+        ir.children = data["children"] and [ctx.classes[s] for s in data["children"]]
+        ir.deletable = data["deletable"]
+        ir.attrs_with_defaults = set(data["attrs_with_defaults"])
+        ir._always_initialized_attrs = set(data["_always_initialized_attrs"])
+        ir._sometimes_initialized_attrs = set(data["_sometimes_initialized_attrs"])
+        ir.init_self_leak = data["init_self_leak"]
+        ir.env_user_function = (
+            ctx.functions[data["env_user_function"]] if data["env_user_function"] else None
+        )
+        ir.reuse_freed_instance = data["reuse_freed_instance"]
+        ir.has_running_flag = data["has_running_flag"]
+        ir.has_private_generator_frame = data["has_private_generator_frame"]
+        ir.is_acyclic = data.get("is_acyclic", False)
+        ir.is_enum = data["is_enum"]
+        ir.coroutine_name = data["is_coroutine"]
 
         return ir
 
@@ -363,40 +699,52 @@ class NonExtClassInfo:
     the class annotations dictionary, and the metaclass.
     """
 
-    def __init__(self, dict: Value, bases: Value, anns: Value, metaclass: Value) -> None:
+    def __init__(
+        self,
+        dict: Value,
+        bases: Value,
+        anns: Value,
+        metaclass: Value,
+        orig_bases: Value | None = None,
+    ) -> None:
         self.dict = dict
         self.bases = bases
         self.anns = anns
         self.metaclass = metaclass
+        # Original expressions, before resolving __mro_entries__, if resolution was needed.
+        self.orig_bases = orig_bases
 
 
 def serialize_vtable_entry(entry: VTableMethod) -> JsonDict:
     return {
-        '.class': 'VTableMethod',
-        'cls': entry.cls.fullname,
-        'name': entry.name,
-        'method': entry.method.decl.fullname,
-        'shadow_method': entry.shadow_method.decl.fullname if entry.shadow_method else None,
+        ".class": "VTableMethod",
+        "cls": entry.cls.fullname,
+        "name": entry.name,
+        "method": entry.method.decl.id,
+        "shadow_method": entry.shadow_method.decl.id if entry.shadow_method else None,
     }
 
 
-def serialize_vtable(vtable: VTableEntries) -> List[JsonDict]:
+def serialize_vtable(vtable: VTableEntries) -> list[JsonDict]:
     return [serialize_vtable_entry(v) for v in vtable]
 
 
-def deserialize_vtable_entry(data: JsonDict, ctx: 'DeserMaps') -> VTableMethod:
-    if data['.class'] == 'VTableMethod':
+def deserialize_vtable_entry(data: JsonDict, ctx: DeserMaps) -> VTableMethod:
+    if data[".class"] == "VTableMethod":
         return VTableMethod(
-            ctx.classes[data['cls']], data['name'], ctx.functions[data['method']],
-            ctx.functions[data['shadow_method']] if data['shadow_method'] else None)
-    assert False, "Bogus vtable .class: %s" % data['.class']
+            ctx.classes[data["cls"]],
+            data["name"],
+            ctx.functions[data["method"]],
+            ctx.functions[data["shadow_method"]] if data["shadow_method"] else None,
+        )
+    assert False, "Bogus vtable .class: %s" % data[".class"]
 
 
-def deserialize_vtable(data: List[JsonDict], ctx: 'DeserMaps') -> VTableEntries:
+def deserialize_vtable(data: list[JsonDict], ctx: DeserMaps) -> VTableEntries:
     return [deserialize_vtable_entry(x, ctx) for x in data]
 
 
-def all_concrete_classes(class_ir: ClassIR) -> Optional[List[ClassIR]]:
+def all_concrete_classes(class_ir: ClassIR) -> list[ClassIR] | None:
     """Return all concrete classes among the class itself and its subclasses."""
     concrete = class_ir.concrete_subclasses()
     if concrete is None:

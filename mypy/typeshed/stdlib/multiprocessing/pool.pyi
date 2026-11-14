@@ -1,90 +1,101 @@
-import sys
-from typing import Any, Callable, ContextManager, Generic, Iterable, Iterator, List, Mapping, Optional, TypeVar
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from multiprocessing.context import DefaultContext, Process as _Process
+from types import GenericAlias, TracebackType
+from typing import Any, Final, Generic, TypeVar
+from typing_extensions import Self
 
-if sys.version_info >= (3, 9):
-    from types import GenericAlias
+__all__ = ["Pool", "ThreadPool"]
 
-_PT = TypeVar("_PT", bound=Pool)
 _S = TypeVar("_S")
 _T = TypeVar("_T")
 
 class ApplyResult(Generic[_T]):
-    def get(self, timeout: Optional[float] = ...) -> _T: ...
-    def wait(self, timeout: Optional[float] = ...) -> None: ...
+    def __init__(
+        self, pool: Pool, callback: Callable[[_T], object] | None, error_callback: Callable[[BaseException], object] | None
+    ) -> None: ...
+    def get(self, timeout: float | None = None) -> _T: ...
+    def wait(self, timeout: float | None = None) -> None: ...
     def ready(self) -> bool: ...
     def successful(self) -> bool: ...
-    if sys.version_info >= (3, 9):
-        def __class_getitem__(cls, item: Any) -> GenericAlias: ...
+    def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
 # alias created during issue #17805
 AsyncResult = ApplyResult
 
-class MapResult(ApplyResult[List[_T]]): ...
+class MapResult(ApplyResult[list[_T]]):
+    def __init__(
+        self,
+        pool: Pool,
+        chunksize: int,
+        length: int,
+        callback: Callable[[list[_T]], object] | None,
+        error_callback: Callable[[BaseException], object] | None,
+    ) -> None: ...
 
 class IMapIterator(Iterator[_T]):
-    def __iter__(self: _S) -> _S: ...
-    def next(self, timeout: Optional[float] = ...) -> _T: ...
-    def __next__(self, timeout: Optional[float] = ...) -> _T: ...
+    def __init__(self, pool: Pool) -> None: ...
+    def __iter__(self) -> Self: ...
+    def next(self, timeout: float | None = None) -> _T: ...
+    def __next__(self, timeout: float | None = None) -> _T: ...
 
 class IMapUnorderedIterator(IMapIterator[_T]): ...
 
-class Pool(ContextManager[Pool]):
+class Pool:
     def __init__(
         self,
-        processes: Optional[int] = ...,
-        initializer: Optional[Callable[..., None]] = ...,
-        initargs: Iterable[Any] = ...,
-        maxtasksperchild: Optional[int] = ...,
-        context: Optional[Any] = ...,
+        processes: int | None = None,
+        initializer: Callable[..., object] | None = None,
+        initargs: Iterable[Any] = (),
+        maxtasksperchild: int | None = None,
+        context: Any | None = None,
     ) -> None: ...
-    def apply(self, func: Callable[..., _T], args: Iterable[Any] = ..., kwds: Mapping[str, Any] = ...) -> _T: ...
+    @staticmethod
+    def Process(ctx: DefaultContext, *args: Any, **kwds: Any) -> _Process: ...
+    def apply(self, func: Callable[..., _T], args: Iterable[Any] = (), kwds: Mapping[str, Any] = {}) -> _T: ...
     def apply_async(
         self,
         func: Callable[..., _T],
-        args: Iterable[Any] = ...,
-        kwds: Mapping[str, Any] = ...,
-        callback: Optional[Callable[[_T], None]] = ...,
-        error_callback: Optional[Callable[[BaseException], None]] = ...,
+        args: Iterable[Any] = (),
+        kwds: Mapping[str, Any] = {},
+        callback: Callable[[_T], object] | None = None,
+        error_callback: Callable[[BaseException], object] | None = None,
     ) -> AsyncResult[_T]: ...
-    def map(self, func: Callable[[_S], _T], iterable: Iterable[_S], chunksize: Optional[int] = ...) -> List[_T]: ...
+    def map(self, func: Callable[[_S], _T], iterable: Iterable[_S], chunksize: int | None = None) -> list[_T]: ...
     def map_async(
         self,
         func: Callable[[_S], _T],
         iterable: Iterable[_S],
-        chunksize: Optional[int] = ...,
-        callback: Optional[Callable[[_T], None]] = ...,
-        error_callback: Optional[Callable[[BaseException], None]] = ...,
+        chunksize: int | None = None,
+        callback: Callable[[list[_T]], object] | None = None,
+        error_callback: Callable[[BaseException], object] | None = None,
     ) -> MapResult[_T]: ...
-    def imap(self, func: Callable[[_S], _T], iterable: Iterable[_S], chunksize: Optional[int] = ...) -> IMapIterator[_T]: ...
-    def imap_unordered(
-        self, func: Callable[[_S], _T], iterable: Iterable[_S], chunksize: Optional[int] = ...
-    ) -> IMapIterator[_T]: ...
-    def starmap(self, func: Callable[..., _T], iterable: Iterable[Iterable[Any]], chunksize: Optional[int] = ...) -> List[_T]: ...
+    def imap(self, func: Callable[[_S], _T], iterable: Iterable[_S], chunksize: int | None = 1) -> IMapIterator[_T]: ...
+    def imap_unordered(self, func: Callable[[_S], _T], iterable: Iterable[_S], chunksize: int | None = 1) -> IMapIterator[_T]: ...
+    def starmap(self, func: Callable[..., _T], iterable: Iterable[Iterable[Any]], chunksize: int | None = None) -> list[_T]: ...
     def starmap_async(
         self,
         func: Callable[..., _T],
         iterable: Iterable[Iterable[Any]],
-        chunksize: Optional[int] = ...,
-        callback: Optional[Callable[[_T], None]] = ...,
-        error_callback: Optional[Callable[[BaseException], None]] = ...,
-    ) -> AsyncResult[List[_T]]: ...
+        chunksize: int | None = None,
+        callback: Callable[[list[_T]], object] | None = None,
+        error_callback: Callable[[BaseException], object] | None = None,
+    ) -> AsyncResult[list[_T]]: ...
     def close(self) -> None: ...
     def terminate(self) -> None: ...
     def join(self) -> None: ...
-    def __enter__(self: _PT) -> _PT: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None: ...
+    def __del__(self) -> None: ...
 
-class ThreadPool(Pool, ContextManager[ThreadPool]):
+class ThreadPool(Pool):
     def __init__(
-        self, processes: Optional[int] = ..., initializer: Optional[Callable[..., Any]] = ..., initargs: Iterable[Any] = ...
+        self, processes: int | None = None, initializer: Callable[..., object] | None = None, initargs: Iterable[Any] = ()
     ) -> None: ...
 
 # undocumented
-if sys.version_info >= (3, 8):
-    INIT: str
-    RUN: str
-    CLOSE: str
-    TERMINATE: str
-else:
-    RUN: int
-    CLOSE: int
-    TERMINATE: int
+INIT: Final = "INIT"
+RUN: Final = "RUN"
+CLOSE: Final = "CLOSE"
+TERMINATE: Final = "TERMINATE"

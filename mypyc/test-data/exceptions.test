@@ -24,6 +24,25 @@ L3:
     r2 = <error> :: int
     return r2
 
+[case testStrRemovePrefixSuffixError]
+def f(s: str, prefix: str, suffix: str) -> str:
+    return s.removeprefix(prefix).removesuffix(suffix)
+[out]
+def f(s, prefix, suffix):
+    s, prefix, suffix, r0, r1, r2 :: str
+L0:
+    r0 = CPyStr_Removeprefix(s, prefix)
+    if is_error(r0) goto L3 (error at f:2) else goto L1
+L1:
+    r1 = CPyStr_Removesuffix(r0, suffix)
+    dec_ref r0
+    if is_error(r1) goto L3 (error at f:2) else goto L2
+L2:
+    return r1
+L3:
+    r2 = <error> :: str
+    return r2
+
 [case testListAppendAndSetItemError]
 from typing import List
 def f(x: List[int], y: int, z: int) -> None:
@@ -34,7 +53,7 @@ def f(x, y, z):
     x :: list
     y, z :: int
     r0 :: object
-    r1 :: int32
+    r1 :: i32
     r2 :: bit
     r3 :: object
     r4 :: bit
@@ -75,33 +94,30 @@ def f(x):
     r1 :: bit
     r2 :: __main__.A
     r3 :: object
-    r4, r5 :: bit
-    r6 :: int
+    r4 :: bit
+    r5 :: int
 L0:
-    r0 = box(None, 1)
+    r0 = load_address _Py_NoneStruct
     r1 = x == r0
     if r1 goto L1 else goto L2 :: bool
 L1:
     return 2
 L2:
-    inc_ref x
-    r2 = cast(__main__.A, x)
+    r2 = borrow cast(__main__.A, x)
     if is_error(r2) goto L6 (error at f:8) else goto L3
 L3:
-    r3 = box(None, 1)
-    r4 = r2 == r3
-    dec_ref r2
-    r5 = r4 ^ 1
-    if r5 goto L4 else goto L5 :: bool
+    r3 = load_address _Py_NoneStruct
+    r4 = r2 != r3
+    if r4 goto L4 else goto L5 :: bool
 L4:
     return 4
 L5:
     return 6
 L6:
-    r6 = <error> :: int
-    return r6
+    r5 = <error> :: int
+    return r5
 
-[case testListSum]
+[case testListSum_withgil]
 from typing import List
 def sum(a: List[int], l: int) -> int:
     sum = 0
@@ -114,57 +130,42 @@ def sum(a: List[int], l: int) -> int:
 def sum(a, l):
     a :: list
     l, sum, i :: int
-    r0 :: native_int
-    r1 :: bit
-    r2 :: native_int
-    r3, r4, r5 :: bit
-    r6 :: object
-    r7, r8, r9, r10 :: int
+    r0 :: bit
+    r1 :: object
+    r2, r3, r4, r5 :: int
 L0:
     sum = 0
     i = 0
 L1:
-    r0 = i & 1
-    r1 = r0 != 0
-    if r1 goto L3 else goto L2 :: bool
+    r0 = int_lt i, l
+    if r0 goto L2 else goto L7 :: bool
 L2:
-    r2 = l & 1
-    r3 = r2 != 0
-    if r3 goto L3 else goto L4 :: bool
+    r1 = CPyList_GetItemBorrow(a, i)
+    if is_error(r1) goto L8 (error at sum:6) else goto L3
 L3:
-    r4 = CPyTagged_IsLt_(i, l)
-    if r4 goto L5 else goto L10 :: bool
+    r2 = unbox(int, r1)
+    if is_error(r2) goto L8 (error at sum:6) else goto L4
 L4:
-    r5 = i < l :: signed
-    if r5 goto L5 else goto L10 :: bool
-L5:
-    r6 = CPyList_GetItem(a, i)
-    if is_error(r6) goto L11 (error at sum:6) else goto L6
-L6:
-    r7 = unbox(int, r6)
-    dec_ref r6
-    if is_error(r7) goto L11 (error at sum:6) else goto L7
-L7:
-    r8 = CPyTagged_Add(sum, r7)
+    r3 = CPyTagged_Add(sum, r2)
     dec_ref sum :: int
-    dec_ref r7 :: int
-    sum = r8
-    r9 = CPyTagged_Add(i, 2)
+    dec_ref r2 :: int
+    sum = r3
+    r4 = CPyTagged_Add(i, 2)
     dec_ref i :: int
-    i = r9
+    i = r4
     goto L1
-L8:
+L5:
     return sum
-L9:
-    r10 = <error> :: int
-    return r10
-L10:
+L6:
+    r5 = <error> :: int
+    return r5
+L7:
     dec_ref i :: int
-    goto L8
-L11:
+    goto L5
+L8:
     dec_ref sum :: int
     dec_ref i :: int
-    goto L9
+    goto L6
 
 [case testTryExcept]
 def g() -> None:
@@ -181,9 +182,12 @@ def g():
     r5 :: str
     r6 :: object
     r7 :: str
-    r8, r9 :: object
-    r10 :: bit
-    r11 :: None
+    r8 :: object
+    r9 :: object[1]
+    r10 :: object_ptr
+    r11 :: object
+    r12 :: bit
+    r13 :: None
 L0:
 L1:
     r0 = builtins :: module
@@ -191,7 +195,7 @@ L1:
     r2 = CPyObject_GetAttr(r0, r1)
     if is_error(r2) goto L3 (error at g:3) else goto L2
 L2:
-    r3 = PyObject_CallFunctionObjArgs(r2, 0)
+    r3 = PyObject_Vectorcall(r2, 0, 0, 0)
     dec_ref r2
     if is_error(r3) goto L3 (error at g:3) else goto L10
 L3:
@@ -202,9 +206,11 @@ L3:
     r8 = CPyObject_GetAttr(r6, r7)
     if is_error(r8) goto L6 (error at g:5) else goto L4
 L4:
-    r9 = PyObject_CallFunctionObjArgs(r8, r5, 0)
+    r9 = [r5]
+    r10 = load_address r9
+    r11 = PyObject_Vectorcall(r8, r10, 1, 0)
     dec_ref r8
-    if is_error(r9) goto L6 (error at g:5) else goto L11
+    if is_error(r11) goto L6 (error at g:5) else goto L11
 L5:
     CPy_RestoreExcInfo(r4)
     dec_ref r4
@@ -212,20 +218,20 @@ L5:
 L6:
     CPy_RestoreExcInfo(r4)
     dec_ref r4
-    r10 = CPy_KeepPropagating()
-    if not r10 goto L9 else goto L7 :: bool
+    r12 = CPy_KeepPropagating()
+    if not r12 goto L9 else goto L7 :: bool
 L7:
     unreachable
 L8:
     return 1
 L9:
-    r11 = <error> :: None
-    return r11
+    r13 = <error> :: None
+    return r13
 L10:
     dec_ref r3
     goto L8
 L11:
-    dec_ref r9
+    dec_ref r11
     goto L5
 
 [case testGenopsTryFinally]
@@ -247,9 +253,12 @@ def a():
     r10 :: str
     r11 :: object
     r12 :: str
-    r13, r14 :: object
-    r15 :: bit
-    r16 :: str
+    r13 :: object
+    r14 :: object[1]
+    r15 :: object_ptr
+    r16 :: object
+    r17 :: bit
+    r18 :: str
 L0:
 L1:
     r0 = builtins :: module
@@ -257,9 +266,9 @@ L1:
     r2 = CPyObject_GetAttr(r0, r1)
     if is_error(r2) goto L5 (error at a:3) else goto L2
 L2:
-    r3 = PyObject_CallFunctionObjArgs(r2, 0)
+    r3 = PyObject_Vectorcall(r2, 0, 0, 0)
     dec_ref r2
-    if is_error(r3) goto L5 (error at a:3) else goto L20
+    if is_error(r3) goto L5 (error at a:3) else goto L19
 L3:
     r4 = 'hi'
     inc_ref r4
@@ -278,52 +287,54 @@ L6:
     r11 = builtins :: module
     r12 = 'print'
     r13 = CPyObject_GetAttr(r11, r12)
-    if is_error(r13) goto L13 (error at a:6) else goto L7
+    if is_error(r13) goto L20 (error at a:6) else goto L7
 L7:
-    r14 = PyObject_CallFunctionObjArgs(r13, r10, 0)
+    r14 = [r10]
+    r15 = load_address r14
+    r16 = PyObject_Vectorcall(r13, r15, 1, 0)
     dec_ref r13
-    if is_error(r14) goto L13 (error at a:6) else goto L21
+    if is_error(r16) goto L20 (error at a:6) else goto L21
 L8:
-    if is_error(r7) goto L11 else goto L9
+    if is_error(r7) goto L11 else goto L22
 L9:
     CPy_Reraise()
-    if not 0 goto L13 else goto L22 :: bool
+    if not 0 goto L13 else goto L23 :: bool
 L10:
     unreachable
 L11:
-    if is_error(r5) goto L18 else goto L12
+    if is_error(r5) goto L17 else goto L12
 L12:
     return r5
 L13:
-    if is_error(r5) goto L14 else goto L23
+    if is_error(r7) goto L15 else goto L14
 L14:
-    if is_error(r7) goto L16 else goto L15
-L15:
     CPy_RestoreExcInfo(r7)
-    dec_ref r7
+    xdec_ref r7
+L15:
+    r17 = CPy_KeepPropagating()
+    if not r17 goto L18 else goto L16 :: bool
 L16:
-    r15 = CPy_KeepPropagating()
-    if not r15 goto L19 else goto L17 :: bool
+    unreachable
 L17:
     unreachable
 L18:
-    unreachable
+    r18 = <error> :: str
+    return r18
 L19:
-    r16 = <error> :: str
-    return r16
-L20:
     dec_ref r3
     goto L3
+L20:
+    xdec_ref r5
+    goto L13
 L21:
-    dec_ref r14
+    dec_ref r16
     goto L8
 L22:
-    dec_ref r5
-    dec_ref r7
-    goto L10
+    xdec_ref r5
+    goto L9
 L23:
-    dec_ref r5
-    goto L14
+    xdec_ref r7
+    goto L10
 
 [case testDocstring1]
 def lol() -> None:
@@ -464,8 +475,11 @@ def f(b):
     r6 :: str
     r7 :: object
     r8 :: bool
-    r9 :: object
-    r10 :: None
+    r9 :: object[1]
+    r10 :: object_ptr
+    r11 :: object
+    r12 :: bool
+    r13 :: None
 L0:
     r0 = <error> :: str
     v = r0
@@ -473,49 +487,344 @@ L0:
     inc_ref r1
     u = r1
 L1:
-    if b goto L10 else goto L11 :: bool
+    if b goto L13 else goto L14 :: bool
 L2:
     r2 = 'b'
     inc_ref r2
     v = r2
     r3 = v == u
     r4 = r3 ^ 1
-    if r4 goto L11 else goto L1 :: bool
+    if r4 goto L14 else goto L1 :: bool
 L3:
     r5 = builtins :: module
     r6 = 'print'
     r7 = CPyObject_GetAttr(r5, r6)
-    if is_error(r7) goto L12 (error at f:7) else goto L4
+    if is_error(r7) goto L15 (error at f:7) else goto L4
 L4:
-    if is_error(v) goto L13 else goto L7
+    if is_error(v) goto L16 else goto L7
 L5:
     r8 = raise UnboundLocalError('local variable "v" referenced before assignment')
-    if not r8 goto L9 (error at f:7) else goto L6 :: bool
+    if not r8 goto L12 (error at f:7) else goto L6 :: bool
 L6:
     unreachable
 L7:
-    r9 = PyObject_CallFunctionObjArgs(r7, v, 0)
+    r9 = [v]
+    r10 = load_address r9
+    r11 = PyObject_Vectorcall(r7, r10, 1, 0)
     dec_ref r7
-    xdec_ref v
-    if is_error(r9) goto L9 (error at f:7) else goto L14
+    if is_error(r11) goto L15 (error at f:7) else goto L17
 L8:
-    return 1
+    if is_error(v) goto L9 else goto L11
 L9:
-    r10 = <error> :: None
-    return r10
+    r12 = raise UnboundLocalError('local variable "v" referenced before assignment')
+    if not r12 goto L12 (error at f:7) else goto L10 :: bool
 L10:
+    unreachable
+L11:
+    xdec_ref v
+    return 1
+L12:
+    r13 = <error> :: None
+    return r13
+L13:
     xdec_ref v
     goto L2
-L11:
+L14:
     dec_ref u
     goto L3
-L12:
+L15:
     xdec_ref v
-    goto L9
-L13:
+    goto L12
+L16:
     dec_ref r7
     goto L5
-L14:
-    dec_ref r9
+L17:
+    dec_ref r11
     goto L8
 
+[case testExceptionWithOverlappingErrorValue]
+from mypy_extensions import i64
+
+def f() -> i64:
+    return 0
+
+def g() -> i64:
+    return f()
+[out]
+def f():
+L0:
+    return 0
+def g():
+    r0 :: i64
+    r1 :: bit
+    r2 :: object
+    r3 :: i64
+L0:
+    r0 = f()
+    r1 = r0 == -113
+    if r1 goto L2 else goto L1 :: bool
+L1:
+    return r0
+L2:
+    r2 = PyErr_Occurred()
+    if not is_error(r2) goto L3 (error at g:7) else goto L1
+L3:
+    r3 = <error> :: i64
+    return r3
+
+[case testExceptionWithNativeAttributeGetAndSet_withgil]
+class C:
+    def __init__(self, x: int) -> None:
+        self.x = x
+
+def foo(c: C, x: int) -> None:
+    c.x = x - c.x
+[out]
+def C.__init__(self, x):
+    self :: __main__.C
+    x :: int
+L0:
+    inc_ref x :: int
+    self.x = x
+    return 1
+def foo(c, x):
+    c :: __main__.C
+    x, r0, r1 :: int
+    r2 :: bool
+L0:
+    r0 = borrow c.x
+    r1 = CPyTagged_Subtract(x, r0)
+    c.x = r1
+    return 1
+
+[case testExceptionWithNativeAttributeGetAndSet_nogil]
+class C:
+    def __init__(self, x: int) -> None:
+        self.x = x
+
+def foo(c: C, x: int) -> None:
+    c.x = x - c.x
+[out]
+def C.__init__(self, x):
+    self :: __main__.C
+    x :: int
+L0:
+    inc_ref x :: int
+    self.x = x
+    return 1
+def foo(c, x):
+    c :: __main__.C
+    x, r0, r1 :: int
+    r2 :: bool
+L0:
+    r0 = c.x
+    r1 = CPyTagged_Subtract(x, r0)
+    dec_ref r0 :: int
+    c.x = r1
+    return 1
+
+[case testExceptionWithOverlappingFloatErrorValue]
+def f() -> float:
+    return 0.0
+
+def g() -> float:
+    return f()
+[out]
+def f():
+L0:
+    return 0.0
+def g():
+    r0 :: float
+    r1 :: bit
+    r2 :: object
+    r3 :: float
+L0:
+    r0 = f()
+    r1 = r0 == -113.0
+    if r1 goto L2 else goto L1 :: bool
+L1:
+    return r0
+L2:
+    r2 = PyErr_Occurred()
+    if not is_error(r2) goto L3 (error at g:5) else goto L1
+L3:
+    r3 = <error> :: float
+    return r3
+
+[case testExceptionWithLowLevelIntAttribute]
+from mypy_extensions import i32, i64
+
+class C:
+    def __init__(self, x: i32, y: i64) -> None:
+        self.x = x
+        self.y = y
+
+def f(c: C) -> None:
+    c.x
+    c.y
+[out]
+def C.__init__(self, x, y):
+    self :: __main__.C
+    x :: i32
+    y :: i64
+L0:
+    self.x = x
+    self.y = y
+    return 1
+def f(c):
+    c :: __main__.C
+    r0 :: i32
+    r1 :: i64
+L0:
+    r0 = c.x
+    r1 = c.y
+    return 1
+
+[case testConditionallyUndefinedI64]
+from mypy_extensions import i64
+
+def f(x: i64) -> i64:
+    if x:
+        y: i64 = 2
+    return y
+[out]
+def f(x):
+    x, r0, y :: i64
+    __locals_bitmap0 :: u32
+    r1 :: bit
+    r2, r3 :: u32
+    r4 :: bit
+    r5 :: bool
+    r6 :: i64
+L0:
+    r0 = <error> :: i64
+    y = r0
+    __locals_bitmap0 = 0
+    r1 = x != 0
+    if r1 goto L1 else goto L2 :: bool
+L1:
+    y = 2
+    r2 = __locals_bitmap0 | 1
+    __locals_bitmap0 = r2
+L2:
+    r3 = __locals_bitmap0 & 1
+    r4 = r3 == 0
+    if r4 goto L3 else goto L5 :: bool
+L3:
+    r5 = raise UnboundLocalError('local variable "y" referenced before assignment')
+    if not r5 goto L6 (error at f:6) else goto L4 :: bool
+L4:
+    unreachable
+L5:
+    return y
+L6:
+    r6 = <error> :: i64
+    return r6
+
+[case testExceptionWithFloatAttribute]
+class C:
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        if x:
+            self.y = y
+
+def f(c: C) -> float:
+    return c.x + c.y
+[out]
+def C.__init__(self, x, y):
+    self :: __main__.C
+    x, y :: float
+    r0 :: bit
+L0:
+    self.x = x
+    r0 = x != 0.0
+    if r0 goto L1 else goto L2 :: bool
+L1:
+    self.y = y
+L2:
+    return 1
+def f(c):
+    c :: __main__.C
+    r0, r1 :: float
+    r2 :: bit
+    r3 :: float
+    r4 :: object
+    r5 :: float
+L0:
+    r0 = c.x
+    r1 = c.y
+    r2 = r1 == -113.0
+    if r2 goto L2 else goto L1 :: bool
+L1:
+    r3 = r0 + r1
+    return r3
+L2:
+    r4 = PyErr_Occurred()
+    if not is_error(r4) goto L3 (error at f:8) else goto L1
+L3:
+    r5 = <error> :: float
+    return r5
+
+[case testVecI64Remove]
+from librt.vecs import vec, remove
+from mypy_extensions import i64
+
+def f(v: vec[i64], i: i64, n: i64) -> None:
+    v = remove(v, n)
+[out]
+def f(v, i, n):
+    v :: vec[i64]
+    i, n :: i64
+    r0 :: vec[i64]
+    r1 :: None
+L0:
+    inc_ref v
+    r0 = VecI64Api.remove(v, n)
+    if is_error(r0) goto L2 (error at f:5) else goto L1
+L1:
+    v = r0
+    dec_ref v
+    return 1
+L2:
+    r1 = <error> :: None
+    return r1
+
+[case testLibRTRandomOverlappingErrorValue]
+from librt.random import Random, randrange
+from mypy_extensions import i64
+
+def f(r: Random, a: i64, b: i64) -> i64:
+    return r.randint(a, b)
+
+def g(n: i64) -> i64:
+    # Result is never negative, so -113 is unambiguously an error
+    return randrange(n)
+[out]
+def f(r, a, b):
+    r :: librt.random.Random
+    a, b, r0 :: i64
+    r1 :: bit
+    r2 :: object
+    r3 :: i64
+L0:
+    r0 = LibRTRandom_Random_randint_internal(r, a, b)
+    r1 = r0 == -113
+    if r1 goto L2 else goto L1 :: bool
+L1:
+    return r0
+L2:
+    r2 = PyErr_Occurred()
+    if not is_error(r2) goto L3 (error at f:5) else goto L1
+L3:
+    r3 = <error> :: i64
+    return r3
+def g(n):
+    n, r0, r1 :: i64
+L0:
+    r0 = LibRTRandom_module_randrange1_internal(n)
+    if is_error(r0) goto L2 (error at g:9) else goto L1
+L1:
+    return r0
+L2:
+    r1 = <error> :: i64
+    return r1

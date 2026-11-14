@@ -3,14 +3,16 @@ This is a module for various lookup functions:
 functions that will find a semantic node by its name.
 """
 
+from __future__ import annotations
+
 from mypy.nodes import MypyFile, SymbolTableNode, TypeInfo
-from typing import Dict, Optional
 
 # TODO: gradually move existing lookup functions to this module.
 
 
-def lookup_fully_qualified(name: str, modules: Dict[str, MypyFile],
-                           raise_on_missing: bool = False) -> Optional[SymbolTableNode]:
+def lookup_fully_qualified(
+    name: str, modules: dict[str, MypyFile], *, raise_on_missing: bool = False
+) -> SymbolTableNode | None:
     """Find a symbol using it fully qualified name.
 
     The algorithm has two steps: first we try splitting the name on '.' to find
@@ -20,31 +22,38 @@ def lookup_fully_qualified(name: str, modules: Dict[str, MypyFile],
     This function should *not* be used to find a module. Those should be looked
     in the modules dictionary.
     """
-    head = name
+    # 1. Exclude the names of ad hoc instance intersections from step 2.
+    i = name.find("<subclass ")
+    head = name if i == -1 else name[:i]
     rest = []
-    # 1. Find a module tree in modules dictionary.
+    # 2. Find a module tree in modules dictionary.
     while True:
-        if '.' not in head:
+        if "." not in head:
             if raise_on_missing:
-                assert '.' in head, "Cannot find module for %s" % (name,)
+                assert "." in head, f"Cannot find module for {name}"
             return None
-        head, tail = head.rsplit('.', maxsplit=1)
+        # TODO: this logic is not correct as it confuses a submodule and a local symbol.
+        # A potential solution may be to use format like pkg.mod:Cls.method for fullname,
+        # but this is a relatively big change.
+        head, tail = head.rsplit(".", maxsplit=1)
         rest.append(tail)
         mod = modules.get(head)
         if mod is not None:
             break
     names = mod.names
-    # 2. Find the symbol in the module tree.
+    # 3. Find the symbol in the module tree.
     if not rest:
         # Looks like a module, don't use this to avoid confusions.
         if raise_on_missing:
-            assert rest, "Cannot find %s, got a module symbol" % (name,)
+            assert rest, f"Cannot find {name}, got a module symbol"
         return None
+    if i != -1:
+        rest[0] += name[i:]
     while True:
         key = rest.pop()
         if key not in names:
             if raise_on_missing:
-                assert key in names, "Cannot find component %r for %r" % (key, name)
+                assert key in names, f"Cannot find component {key!r} for {name!r}"
             return None
         stnode = names[key]
         if not rest:
@@ -54,6 +63,18 @@ def lookup_fully_qualified(name: str, modules: Dict[str, MypyFile],
         # or a Var made up for a missing module.
         if not isinstance(node, TypeInfo):
             if raise_on_missing:
-                assert node, "Cannot find %s" % (name,)
+                assert node, f"Cannot find {name}"
             return None
         names = node.names
+
+
+def lookup_stdlib_typeinfo(fullname: str, modules: dict[str, MypyFile]) -> TypeInfo:
+    """Find TypeInfo for a standard library type.
+
+    This fast path assumes that the type exists at module top-level, use this
+    function only for common types like `builtins.object` or `typing.Iterable`.
+    """
+    module, name = fullname.rsplit(".", maxsplit=1)
+    sym = modules[module].names[name]
+    assert isinstance(sym.node, TypeInfo)
+    return sym.node

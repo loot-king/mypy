@@ -1,116 +1,117 @@
 import sys
-from typing import Any, NamedTuple, Optional, Tuple, Union
+from _typeshed import structseq
+from typing import Any, Final, Literal, Protocol, SupportsFloat, SupportsIndex, TypeAlias, Union, final, type_check_only
 
-if sys.version_info >= (3, 3):
-    from types import SimpleNamespace
+_TimeTuple: TypeAlias = tuple[int, int, int, int, int, int, int, int, int]
 
-_TimeTuple = Tuple[int, int, int, int, int, int, int, int, int]
+if sys.version_info >= (3, 15):
+    # anticipate on https://github.com/python/cpython/pull/139224
+    _SupportsFloatOrIndex: TypeAlias = Union[SupportsFloat, SupportsIndex]
+else:
+    # before, time functions only accept (subclass of) float, *not* SupportsFloat
+    _SupportsFloatOrIndex: TypeAlias = Union[float, SupportsIndex]
 
-if sys.version_info < (3, 3):
-    accept2dyear: bool
 altzone: int
 daylight: int
 timezone: int
-tzname: Tuple[str, str]
+tzname: tuple[str, str]
 
-if sys.version_info >= (3, 7) and sys.platform != "win32":
-    CLOCK_BOOTTIME: int  # Linux
-    CLOCK_PROF: int  # FreeBSD, NetBSD, OpenBSD
-    CLOCK_UPTIME: int  # FreeBSD, OpenBSD
+if sys.platform == "linux":
+    CLOCK_BOOTTIME: Final[int]
+if sys.platform != "linux" and sys.platform != "win32" and sys.platform != "darwin":
+    CLOCK_PROF: Final[int]  # FreeBSD, NetBSD, OpenBSD
+    CLOCK_UPTIME: Final[int]  # FreeBSD, OpenBSD
 
-if sys.version_info >= (3, 3) and sys.platform != "win32":
-    CLOCK_HIGHRES: int  # Solaris only
-    CLOCK_MONOTONIC: int  # Unix only
-    CLOCK_MONOTONIC_RAW: int  # Linux 2.6.28 or later
-    CLOCK_PROCESS_CPUTIME_ID: int  # Unix only
-    CLOCK_REALTIME: int  # Unix only
-    CLOCK_THREAD_CPUTIME_ID: int  # Unix only
+if sys.platform != "win32":
+    CLOCK_MONOTONIC: Final[int]
+    CLOCK_MONOTONIC_RAW: Final[int]
+    CLOCK_PROCESS_CPUTIME_ID: Final[int]
+    CLOCK_REALTIME: Final[int]
+    CLOCK_THREAD_CPUTIME_ID: Final[int]
+    if sys.platform != "linux" and sys.platform != "darwin":
+        CLOCK_HIGHRES: Final[int]  # Solaris only
 
-if sys.version_info >= (3, 8) and sys.platform == "darwin":
-    CLOCK_UPTIME_RAW: int
+if sys.platform == "darwin":
+    CLOCK_UPTIME_RAW: Final[int]
+    if sys.version_info >= (3, 13):
+        CLOCK_UPTIME_RAW_APPROX: Final[int]
+        CLOCK_MONOTONIC_RAW_APPROX: Final[int]
 
-class _struct_time(NamedTuple):
-    tm_year: int
-    tm_mon: int
-    tm_mday: int
-    tm_hour: int
-    tm_min: int
-    tm_sec: int
-    tm_wday: int
-    tm_yday: int
-    tm_isdst: int
+if sys.platform == "linux":
+    CLOCK_TAI: Final[int]
+
+# Constructor takes an iterable of any type, of length between 9 and 11 elements.
+# However, it always *behaves* like a tuple of 9 elements,
+# even if an iterable with length >9 is passed.
+# https://github.com/python/typeshed/pull/6560#discussion_r767162532
+@final
+class struct_time(structseq[Any | int], _TimeTuple):
+    __match_args__: Final = ("tm_year", "tm_mon", "tm_mday", "tm_hour", "tm_min", "tm_sec", "tm_wday", "tm_yday", "tm_isdst")
+
     @property
-    def n_fields(self) -> int: ...
+    def tm_year(self) -> int: ...
     @property
-    def n_sequence_fields(self) -> int: ...
+    def tm_mon(self) -> int: ...
     @property
-    def n_unnamed_fields(self) -> int: ...
+    def tm_mday(self) -> int: ...
+    @property
+    def tm_hour(self) -> int: ...
+    @property
+    def tm_min(self) -> int: ...
+    @property
+    def tm_sec(self) -> int: ...
+    @property
+    def tm_wday(self) -> int: ...
+    @property
+    def tm_yday(self) -> int: ...
+    @property
+    def tm_isdst(self) -> int: ...
+    # These final two properties only exist if a 10- or 11-item sequence was passed to the constructor.
+    @property
+    def tm_zone(self) -> str: ...
+    @property
+    def tm_gmtoff(self) -> int: ...
 
-if sys.version_info >= (3, 3):
-    class struct_time(_struct_time):
-        def __init__(
-            self,
-            o: Union[
-                Tuple[int, int, int, int, int, int, int, int, int],
-                Tuple[int, int, int, int, int, int, int, int, int, str],
-                Tuple[int, int, int, int, int, int, int, int, int, str, int],
-            ],
-            _arg: Any = ...,
-        ) -> None: ...
-        def __new__(
-            cls,
-            o: Union[
-                Tuple[int, int, int, int, int, int, int, int, int],
-                Tuple[int, int, int, int, int, int, int, int, int, str],
-                Tuple[int, int, int, int, int, int, int, int, int, str, int],
-            ],
-            _arg: Any = ...,
-        ) -> struct_time: ...
-        if sys.version_info >= (3, 6) or sys.platform != "win32":
-            @property
-            def tm_zone(self) -> str: ...
-            @property
-            def tm_gmtoff(self) -> int: ...
-
-else:
-    class struct_time(_struct_time):
-        def __init__(self, o: _TimeTuple, _arg: Any = ...) -> None: ...
-        def __new__(cls, o: _TimeTuple, _arg: Any = ...) -> struct_time: ...
-
-def asctime(t: Union[_TimeTuple, struct_time] = ...) -> str: ...
-
-if sys.version_info < (3, 8):
-    def clock() -> float: ...
-
-def ctime(secs: Optional[float] = ...) -> str: ...
-def gmtime(secs: Optional[float] = ...) -> struct_time: ...
-def localtime(secs: Optional[float] = ...) -> struct_time: ...
-def mktime(t: Union[_TimeTuple, struct_time]) -> float: ...
-def sleep(secs: float) -> None: ...
-def strftime(format: str, t: Union[_TimeTuple, struct_time] = ...) -> str: ...
-def strptime(string: str, format: str = ...) -> struct_time: ...
+def asctime(time_tuple: _TimeTuple | struct_time = ..., /) -> str: ...
+def ctime(seconds: _SupportsFloatOrIndex | None = None, /) -> str: ...
+def gmtime(seconds: _SupportsFloatOrIndex | None = None, /) -> struct_time: ...
+def localtime(seconds: _SupportsFloatOrIndex | None = None, /) -> struct_time: ...
+def mktime(time_tuple: _TimeTuple | struct_time, /) -> float: ...
+def sleep(seconds: _SupportsFloatOrIndex, /) -> None: ...
+def strftime(format: str, time_tuple: _TimeTuple | struct_time = ..., /) -> str: ...
+def strptime(data_string: str, format: str = "%a %b %d %H:%M:%S %Y", /) -> struct_time: ...
 def time() -> float: ...
 
 if sys.platform != "win32":
     def tzset() -> None: ...  # Unix only
 
-if sys.version_info >= (3, 3):
-    def get_clock_info(name: str) -> SimpleNamespace: ...
-    def monotonic() -> float: ...
-    def perf_counter() -> float: ...
-    def process_time() -> float: ...
-    if sys.platform != "win32":
-        def clock_getres(clk_id: int) -> float: ...  # Unix only
-        def clock_gettime(clk_id: int) -> float: ...  # Unix only
-        def clock_settime(clk_id: int, time: float) -> None: ...  # Unix only
+@type_check_only
+class _ClockInfo(Protocol):
+    adjustable: bool
+    implementation: str
+    monotonic: bool
+    resolution: float
 
-if sys.version_info >= (3, 7):
-    if sys.platform != "win32":
-        def clock_gettime_ns(clock_id: int) -> int: ...
-        def clock_settime_ns(clock_id: int, time: int) -> int: ...
-    def monotonic_ns() -> int: ...
-    def perf_counter_ns() -> int: ...
-    def process_time_ns() -> int: ...
-    def time_ns() -> int: ...
-    def thread_time() -> float: ...
-    def thread_time_ns() -> int: ...
+def get_clock_info(name: Literal["monotonic", "perf_counter", "process_time", "time", "thread_time"], /) -> _ClockInfo: ...
+def monotonic() -> float: ...
+def perf_counter() -> float: ...
+def process_time() -> float: ...
+
+if sys.platform != "win32":
+    def clock_getres(clk_id: int, /) -> float: ...  # Unix only
+    def clock_gettime(clk_id: int, /) -> float: ...  # Unix only
+    def clock_settime(clk_id: int, time: float, /) -> None: ...  # Unix only
+
+if sys.platform != "win32":
+    def clock_gettime_ns(clk_id: int, /) -> int: ...
+    def clock_settime_ns(clock_id: int, time: int, /) -> int: ...
+
+if sys.platform == "linux":
+    def pthread_getcpuclockid(thread_id: int, /) -> int: ...
+
+def monotonic_ns() -> int: ...
+def perf_counter_ns() -> int: ...
+def process_time_ns() -> int: ...
+def time_ns() -> int: ...
+def thread_time() -> float: ...
+def thread_time_ns() -> int: ...

@@ -1,62 +1,102 @@
 import sys
-from array import array
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-    Generic,
-    Iterable,
-    Iterator,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Text,
-    Tuple,
-    Type,
-    TypeVar,
-    Union as _UnionT,
-    overload,
+from _ctypes import (
+    RTLD_GLOBAL as RTLD_GLOBAL,
+    RTLD_LOCAL as RTLD_LOCAL,
+    Array as Array,
+    CFuncPtr as _CFuncPtr,
+    Structure as Structure,
+    Union as Union,
+    _CanCastTo as _CanCastTo,
+    _CArgObject as _CArgObject,
+    _CData as _CData,
+    _CDataType as _CDataType,
+    _CField as _CField,
+    _CTypeBaseType,
+    _Pointer as _Pointer,
+    _PointerLike as _PointerLike,
+    _SimpleCData as _SimpleCData,
+    addressof as addressof,
+    alignment as alignment,
+    byref as byref,
+    get_errno as get_errno,
+    resize as resize,
+    set_errno as set_errno,
+    sizeof as sizeof,
 )
+from _typeshed import StrPath, SupportsBool, SupportsLen
+from ctypes._endian import BigEndianStructure as BigEndianStructure, LittleEndianStructure as LittleEndianStructure
+from types import GenericAlias
+from typing import Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, overload, type_check_only
+from typing_extensions import Self, deprecated
 
-if sys.version_info >= (3, 9):
-    from types import GenericAlias
+if sys.platform == "win32":
+    from _ctypes import FormatError as FormatError, get_last_error as get_last_error, set_last_error as set_last_error
 
-_T = TypeVar("_T")
-_DLLT = TypeVar("_DLLT", bound=CDLL)
+    if sys.version_info >= (3, 14):
+        from _ctypes import COMError as COMError, CopyComPointer as CopyComPointer
+
+if sys.version_info >= (3, 11):
+    from ctypes._endian import BigEndianUnion as BigEndianUnion, LittleEndianUnion as LittleEndianUnion
+
 _CT = TypeVar("_CT", bound=_CData)
+_T = TypeVar("_T", default=Any)
+_DLLT = TypeVar("_DLLT", bound=CDLL)
 
-RTLD_GLOBAL: int = ...
-RTLD_LOCAL: int = ...
-DEFAULT_MODE: int = ...
+if sys.version_info >= (3, 14):
+    @overload
+    @deprecated("ctypes.POINTER with string")
+    def POINTER(cls: str) -> type[Any]: ...
+    @overload
+    def POINTER(cls: None) -> type[c_void_p]: ...
+    @overload
+    def POINTER(cls: type[_CT]) -> type[_Pointer[_CT]]: ...
 
-class CDLL(object):
-    _func_flags_: ClassVar[int] = ...
-    _func_restype_: ClassVar[_CData] = ...
-    _name: str = ...
-    _handle: int = ...
-    _FuncPtr: Type[_FuncPointer] = ...
-    if sys.version_info >= (3, 8):
-        def __init__(
-            self,
-            name: Optional[str],
-            mode: int = ...,
-            handle: Optional[int] = ...,
-            use_errno: bool = ...,
-            use_last_error: bool = ...,
-            winmode: Optional[int] = ...,
-        ) -> None: ...
-    else:
-        def __init__(
-            self,
-            name: Optional[str],
-            mode: int = ...,
-            handle: Optional[int] = ...,
-            use_errno: bool = ...,
-            use_last_error: bool = ...,
-        ) -> None: ...
+    def pointer(obj: _CT) -> _Pointer[_CT]: ...
+
+else:
+    from _ctypes import POINTER as POINTER, pointer as pointer
+
+if sys.version_info >= (3, 14):
+    CField = _CField
+
+DEFAULT_MODE: Final[int]
+
+class ArgumentError(Exception): ...
+
+# defined within CDLL.__init__
+# Runtime name is ctypes.CDLL.__init__.<locals>._FuncPtr
+@type_check_only
+class _CDLLFuncPointer(_CFuncPtr):
+    _flags_: ClassVar[int]
+    _restype_: ClassVar[type[_CDataType]]
+
+# Not a real class; _CDLLFuncPointer with a __name__ set on it.
+@type_check_only
+class _NamedFuncPointer(_CDLLFuncPointer):
+    __name__: str
+
+if sys.version_info >= (3, 12):
+    _NameTypes: TypeAlias = StrPath | None
+else:
+    _NameTypes: TypeAlias = str | None
+
+class CDLL:
+    _func_flags_: ClassVar[int]
+    _func_restype_: ClassVar[type[_CDataType]]
+    _name: str
+    _handle: int
+    _FuncPtr: type[_CDLLFuncPointer]
+    def __init__(
+        self,
+        name: _NameTypes,
+        mode: int = ...,
+        handle: int | None = None,
+        use_errno: bool = False,
+        use_last_error: bool = False,
+        winmode: int | None = None,
+    ) -> None: ...
     def __getattr__(self, name: str) -> _NamedFuncPointer: ...
-    def __getitem__(self, name: str) -> _NamedFuncPointer: ...
+    def __getitem__(self, name_or_ordinal: str) -> _NamedFuncPointer: ...
 
 if sys.platform == "win32":
     class OleDLL(CDLL): ...
@@ -65,255 +105,290 @@ if sys.platform == "win32":
 class PyDLL(CDLL): ...
 
 class LibraryLoader(Generic[_DLLT]):
-    def __init__(self, dlltype: Type[_DLLT]) -> None: ...
+    def __init__(self, dlltype: type[_DLLT]) -> None: ...
     def __getattr__(self, name: str) -> _DLLT: ...
     def __getitem__(self, name: str) -> _DLLT: ...
     def LoadLibrary(self, name: str) -> _DLLT: ...
-    if sys.version_info >= (3, 9):
-        def __class_getitem__(cls, item: Any) -> GenericAlias: ...
+    def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
-cdll: LibraryLoader[CDLL] = ...
+cdll: LibraryLoader[CDLL]
 if sys.platform == "win32":
-    windll: LibraryLoader[WinDLL] = ...
-    oledll: LibraryLoader[OleDLL] = ...
-pydll: LibraryLoader[PyDLL] = ...
-pythonapi: PyDLL = ...
+    windll: LibraryLoader[WinDLL]
+    oledll: LibraryLoader[OleDLL]
+pydll: LibraryLoader[PyDLL]
+pythonapi: PyDLL
 
-# Anything that implements the read-write buffer interface.
-# The buffer interface is defined purely on the C level, so we cannot define a normal Protocol
-# for it. Instead we have to list the most common stdlib buffer classes in a Union.
-_WritableBuffer = _UnionT[bytearray, memoryview, array[Any], _CData]
-# Same as _WritableBuffer, but also includes read-only buffer types (like bytes).
-_ReadOnlyBuffer = _UnionT[_WritableBuffer, bytes]
+# Class definition within CFUNCTYPE / WINFUNCTYPE / PYFUNCTYPE
+# Names at runtime are
+# ctypes.CFUNCTYPE.<locals>.CFunctionType
+# ctypes.WINFUNCTYPE.<locals>.WinFunctionType
+# ctypes.PYFUNCTYPE.<locals>.CFunctionType
+@type_check_only
+class _CFunctionType(_CFuncPtr):
+    _argtypes_: ClassVar[list[type[_CData | _CDataType]]]
+    _restype_: ClassVar[type[_CData | _CDataType] | None]
+    _flags_: ClassVar[int]
 
-class _CDataMeta(type):
-    # By default mypy complains about the following two methods, because strictly speaking cls
-    # might not be a Type[_CT]. However this can never actually happen, because the only class that
-    # uses _CDataMeta as its metaclass is _CData. So it's safe to ignore the errors here.
-    def __mul__(cls: Type[_CT], other: int) -> Type[Array[_CT]]: ...  # type: ignore
-    def __rmul__(cls: Type[_CT], other: int) -> Type[Array[_CT]]: ...  # type: ignore
-
-class _CData(metaclass=_CDataMeta):
-    _b_base: int = ...
-    _b_needsfree_: bool = ...
-    _objects: Optional[Mapping[Any, int]] = ...
-    @classmethod
-    def from_buffer(cls: Type[_CT], source: _WritableBuffer, offset: int = ...) -> _CT: ...
-    @classmethod
-    def from_buffer_copy(cls: Type[_CT], source: _ReadOnlyBuffer, offset: int = ...) -> _CT: ...
-    @classmethod
-    def from_address(cls: Type[_CT], address: int) -> _CT: ...
-    @classmethod
-    def from_param(cls: Type[_CT], obj: Any) -> _UnionT[_CT, _CArgObject]: ...
-    @classmethod
-    def in_dll(cls: Type[_CT], library: CDLL, name: str) -> _CT: ...
-
-class _CanCastTo(_CData): ...
-class _PointerLike(_CanCastTo): ...
-
-_ECT = Callable[[Optional[Type[_CData]], _FuncPointer, Tuple[_CData, ...]], _CData]
-_PF = _UnionT[Tuple[int], Tuple[int, str], Tuple[int, str, Any]]
-
-class _FuncPointer(_PointerLike, _CData):
-    restype: _UnionT[Type[_CData], Callable[[int], Any], None] = ...
-    argtypes: Sequence[Type[_CData]] = ...
-    errcheck: _ECT = ...
-    @overload
-    def __init__(self, address: int) -> None: ...
-    @overload
-    def __init__(self, callable: Callable[..., Any]) -> None: ...
-    @overload
-    def __init__(self, func_spec: Tuple[_UnionT[str, int], CDLL], paramflags: Tuple[_PF, ...] = ...) -> None: ...
-    @overload
-    def __init__(self, vtlb_index: int, name: str, paramflags: Tuple[_PF, ...] = ..., iid: pointer[c_int] = ...) -> None: ...
-    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
-
-class _NamedFuncPointer(_FuncPointer):
-    __name__: str
-
-class ArgumentError(Exception): ...
+# Alias for either function pointer type
+_FuncPointer: TypeAlias = _CDLLFuncPointer | _CFunctionType  # noqa: Y047  # not used here
 
 def CFUNCTYPE(
-    restype: Optional[Type[_CData]], *argtypes: Type[_CData], use_errno: bool = ..., use_last_error: bool = ...
-) -> Type[_FuncPointer]: ...
+    restype: type[_CData | _CDataType] | None,
+    *argtypes: type[_CData | _CDataType],
+    use_errno: bool = False,
+    use_last_error: bool = False,
+) -> type[_CFunctionType]: ...
 
 if sys.platform == "win32":
     def WINFUNCTYPE(
-        restype: Optional[Type[_CData]], *argtypes: Type[_CData], use_errno: bool = ..., use_last_error: bool = ...
-    ) -> Type[_FuncPointer]: ...
+        restype: type[_CData | _CDataType] | None,
+        *argtypes: type[_CData | _CDataType],
+        use_errno: bool = False,
+        use_last_error: bool = False,
+    ) -> type[_CFunctionType]: ...
 
-def PYFUNCTYPE(restype: Optional[Type[_CData]], *argtypes: Type[_CData]) -> Type[_FuncPointer]: ...
-
-class _CArgObject: ...
+def PYFUNCTYPE(restype: type[_CData | _CDataType] | None, *argtypes: type[_CData | _CDataType]) -> type[_CFunctionType]: ...
 
 # Any type that can be implicitly converted to c_void_p when passed as a C function argument.
 # (bytes is not included here, see below.)
-_CVoidPLike = _UnionT[_PointerLike, Array[Any], _CArgObject, int]
+_CVoidPLike: TypeAlias = _PointerLike | Array[Any] | _CArgObject | int
 # Same as above, but including types known to be read-only (i. e. bytes).
 # This distinction is not strictly necessary (ctypes doesn't differentiate between const
 # and non-const pointers), but it catches errors like memmove(b'foo', buf, 4)
 # when memmove(buf, b'foo', 4) was intended.
-_CVoidConstPLike = _UnionT[_CVoidPLike, bytes]
-
-def addressof(obj: _CData) -> int: ...
-def alignment(obj_or_type: _UnionT[_CData, Type[_CData]]) -> int: ...
-def byref(obj: _CData, offset: int = ...) -> _CArgObject: ...
+_CVoidConstPLike: TypeAlias = _CVoidPLike | bytes
 
 _CastT = TypeVar("_CastT", bound=_CanCastTo)
 
-def cast(obj: _UnionT[_CData, _CArgObject, int], typ: Type[_CastT]) -> _CastT: ...
-def create_string_buffer(init: _UnionT[int, bytes], size: Optional[int] = ...) -> Array[c_char]: ...
+def cast(obj: _CData | _CDataType | _CArgObject | int, typ: type[_CastT]) -> _CastT: ...
+def create_string_buffer(init: int | bytes, size: int | None = None) -> Array[c_char]: ...
 
 c_buffer = create_string_buffer
 
-def create_unicode_buffer(init: _UnionT[int, Text], size: Optional[int] = ...) -> Array[c_wchar]: ...
+def create_unicode_buffer(init: int | str, size: int | None = None) -> Array[c_wchar]: ...
+
+if sys.version_info < (3, 15):
+    @deprecated("Deprecated; removed in Python 3.15.")
+    def SetPointerType(pointer: type[_Pointer[Any]], cls: _CTypeBaseType) -> None: ...
+
+@deprecated("Soft deprecated. Use multiplication instead.")
+def ARRAY(typ: _CT, len: int) -> Array[_CT]: ...
 
 if sys.platform == "win32":
     def DllCanUnloadNow() -> int: ...
-    def DllGetClassObject(rclsid: Any, riid: Any, ppv: Any) -> int: ...  # TODO not documented
-    def FormatError(code: int) -> str: ...
-    def GetLastError() -> int: ...
+    def DllGetClassObject(rclsid: Any, riid: Any, ppv: Any) -> int: ...  # TODO: not documented
 
-def get_errno() -> int: ...
+    # Actually just an instance of _NamedFuncPointer (aka _CDLLFuncPointer),
+    # but we want to set a more specific __call__
+    @type_check_only
+    class _GetLastErrorFunctionType(_NamedFuncPointer):
+        def __call__(self) -> int: ...
 
-if sys.platform == "win32":
-    def get_last_error() -> int: ...
+    GetLastError: _GetLastErrorFunctionType
 
-def memmove(dst: _CVoidPLike, src: _CVoidConstPLike, count: int) -> None: ...
-def memset(dst: _CVoidPLike, c: int, count: int) -> None: ...
-def POINTER(type: Type[_CT]) -> Type[pointer[_CT]]: ...
+# Actually just an instance of _CFunctionType, but we want to set a more
+# specific __call__.
+@type_check_only
+class _MemmoveFunctionType(_CFunctionType):
+    def __call__(self, dst: _CVoidPLike, src: _CVoidConstPLike, count: int) -> int: ...
 
-# The real ctypes.pointer is a function, not a class. The stub version of pointer behaves like
-# ctypes._Pointer in that it is the base class for all pointer types. Unlike the real _Pointer,
-# it can be instantiated directly (to mimic the behavior of the real pointer function).
-class pointer(Generic[_CT], _PointerLike, _CData):
-    _type_: ClassVar[Type[_CT]] = ...
-    contents: _CT = ...
-    def __init__(self, arg: _CT = ...) -> None: ...
-    @overload
-    def __getitem__(self, i: int) -> _CT: ...
-    @overload
-    def __getitem__(self, s: slice) -> List[_CT]: ...
-    @overload
-    def __setitem__(self, i: int, o: _CT) -> None: ...
-    @overload
-    def __setitem__(self, s: slice, o: Iterable[_CT]) -> None: ...
+memmove: _MemmoveFunctionType
 
-def resize(obj: _CData, size: int) -> None: ...
+# Actually just an instance of _CFunctionType, but we want to set a more
+# specific __call__.
+@type_check_only
+class _MemsetFunctionType(_CFunctionType):
+    def __call__(self, dst: _CVoidPLike, c: int, count: int) -> int: ...
 
-if sys.version_info < (3,):
-    def set_conversion_mode(encoding: str, errors: str) -> Tuple[str, str]: ...
+memset: _MemsetFunctionType
 
-def set_errno(value: int) -> int: ...
+def string_at(ptr: _CVoidConstPLike, size: int = -1) -> bytes: ...
 
 if sys.platform == "win32":
-    def set_last_error(value: int) -> int: ...
+    def WinError(code: int | None = None, descr: str | None = None) -> OSError: ...
 
-def sizeof(obj_or_type: _UnionT[_CData, Type[_CData]]) -> int: ...
-def string_at(address: _CVoidConstPLike, size: int = ...) -> bytes: ...
+def wstring_at(ptr: _CVoidConstPLike, size: int = -1) -> str: ...
 
-if sys.platform == "win32":
-    def WinError(code: Optional[int] = ..., descr: Optional[str] = ...) -> OSError: ...
+if sys.version_info >= (3, 14):
+    def memoryview_at(ptr: _CVoidConstPLike, size: int, readonly: bool = False) -> memoryview: ...
 
-def wstring_at(address: _CVoidConstPLike, size: int = ...) -> str: ...
-
-class _SimpleCData(Generic[_T], _CData):
-    value: _T = ...
-    def __init__(self, value: _T = ...) -> None: ...
-
-class c_byte(_SimpleCData[int]): ...
-
-class c_char(_SimpleCData[bytes]):
-    def __init__(self, value: _UnionT[int, bytes] = ...) -> None: ...
-
-class c_char_p(_PointerLike, _SimpleCData[Optional[bytes]]):
-    def __init__(self, value: Optional[_UnionT[int, bytes]] = ...) -> None: ...
-
-class c_double(_SimpleCData[float]): ...
-class c_longdouble(_SimpleCData[float]): ...
-class c_float(_SimpleCData[float]): ...
-class c_int(_SimpleCData[int]): ...
-class c_int8(_SimpleCData[int]): ...
-class c_int16(_SimpleCData[int]): ...
-class c_int32(_SimpleCData[int]): ...
-class c_int64(_SimpleCData[int]): ...
-class c_long(_SimpleCData[int]): ...
-class c_longlong(_SimpleCData[int]): ...
-class c_short(_SimpleCData[int]): ...
-class c_size_t(_SimpleCData[int]): ...
-class c_ssize_t(_SimpleCData[int]): ...
-class c_ubyte(_SimpleCData[int]): ...
-class c_uint(_SimpleCData[int]): ...
-class c_uint8(_SimpleCData[int]): ...
-class c_uint16(_SimpleCData[int]): ...
-class c_uint32(_SimpleCData[int]): ...
-class c_uint64(_SimpleCData[int]): ...
-class c_ulong(_SimpleCData[int]): ...
-class c_ulonglong(_SimpleCData[int]): ...
-class c_ushort(_SimpleCData[int]): ...
-class c_void_p(_PointerLike, _SimpleCData[Optional[int]]): ...
-class c_wchar(_SimpleCData[Text]): ...
-
-class c_wchar_p(_PointerLike, _SimpleCData[Optional[Text]]):
-    def __init__(self, value: Optional[_UnionT[int, Text]] = ...) -> None: ...
+class py_object(_CanCastTo, _SimpleCData[_T]):
+    _type_: ClassVar[Literal["O"]]
+    if sys.version_info >= (3, 14):
+        def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
 class c_bool(_SimpleCData[bool]):
-    def __init__(self, value: bool = ...) -> None: ...
+    _type_: ClassVar[Literal["?"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+    def __init__(self, value: SupportsBool | SupportsLen | None = ...) -> None: ...
+
+class c_byte(_SimpleCData[int]):
+    _type_: ClassVar[Literal["b"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_ubyte(_SimpleCData[int]):
+    _type_: ClassVar[Literal["B"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_short(_SimpleCData[int]):
+    _type_: ClassVar[Literal["h"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_ushort(_SimpleCData[int]):
+    _type_: ClassVar[Literal["H"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_long(_SimpleCData[int]):
+    _type_: ClassVar[Literal["l"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_ulong(_SimpleCData[int]):
+    _type_: ClassVar[Literal["L"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_int(_SimpleCData[int]):  # can be an alias for c_long
+    _type_: ClassVar[Literal["i", "l"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_uint(_SimpleCData[int]):  # can be an alias for c_ulong
+    _type_: ClassVar[Literal["I", "L"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_longlong(_SimpleCData[int]):  # can be an alias for c_long
+    _type_: ClassVar[Literal["q", "l"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_ulonglong(_SimpleCData[int]):  # can be an alias for c_ulong
+    _type_: ClassVar[Literal["Q", "L"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+c_int8 = c_byte
+c_uint8 = c_ubyte
+
+class c_int16(_SimpleCData[int]):  # can be an alias for c_short or c_int
+    _type_: ClassVar[Literal["h", "i"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_uint16(_SimpleCData[int]):  # can be an alias for c_ushort or c_uint
+    _type_: ClassVar[Literal["H", "I"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_int32(_SimpleCData[int]):  # can be an alias for c_int or c_long
+    _type_: ClassVar[Literal["i", "l"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_uint32(_SimpleCData[int]):  # can be an alias for c_uint or c_ulong
+    _type_: ClassVar[Literal["I", "L"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_int64(_SimpleCData[int]):  # can be an alias for c_long or c_longlong
+    _type_: ClassVar[Literal["l", "q"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_uint64(_SimpleCData[int]):  # can be an alias for c_ulong or c_ulonglong
+    _type_: ClassVar[Literal["L", "Q"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_ssize_t(_SimpleCData[int]):  # alias for c_int, c_long, or c_longlong
+    _type_: ClassVar[Literal["i", "l", "q"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_size_t(_SimpleCData[int]):  # alias for c_uint, c_ulong, or c_ulonglong
+    _type_: ClassVar[Literal["I", "L", "Q"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_float(_SimpleCData[float]):
+    _type_: ClassVar[Literal["f"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_double(_SimpleCData[float]):
+    _type_: ClassVar[Literal["d"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+
+class c_longdouble(_SimpleCData[float]):  # can be an alias for c_double
+    _type_: ClassVar[Literal["d", "g"]]
+
+if sys.version_info >= (3, 14) and sys.platform != "win32":
+    # NOTE: currently (3.14.4) the `__ctype_{be,le}__` attributes of these complex types are missing at runtime:
+    # https://github.com/python/cpython/issues/148464
+
+    class c_double_complex(_SimpleCData[complex]):
+        if sys.version_info >= (3, 15):
+            _type_: ClassVar[Literal["Zd"]]
+        else:
+            _type_: ClassVar[Literal["D"]]
+        __ctype_be__: ClassVar[type[Self]]
+        __ctype_le__: ClassVar[type[Self]]
+
+    class c_float_complex(_SimpleCData[complex]):
+        if sys.version_info >= (3, 15):
+            _type_: ClassVar[Literal["Zf"]]
+        else:
+            _type_: ClassVar[Literal["F"]]
+        __ctype_be__: ClassVar[type[Self]]
+        __ctype_le__: ClassVar[type[Self]]
+
+    class c_longdouble_complex(_SimpleCData[complex]):
+        if sys.version_info >= (3, 15):
+            _type_: ClassVar[Literal["Zg"]]
+        else:
+            _type_: ClassVar[Literal["G"]]
+
+class c_char(_SimpleCData[bytes]):
+    _type_: ClassVar[Literal["c"]]
+    __ctype_be__: ClassVar[type[Self]]
+    __ctype_le__: ClassVar[type[Self]]
+    def __init__(self, value: int | bytes | bytearray = ...) -> None: ...
+
+class c_char_p(_PointerLike, _SimpleCData[bytes | None]):
+    _type_: ClassVar[Literal["z"]]
+    def __init__(self, value: int | bytes | None = ...) -> None: ...
+    @classmethod
+    def from_param(cls, value: Any, /) -> Self | _CArgObject: ...
+
+class c_void_p(_PointerLike, _SimpleCData[int | None]):
+    _type_: ClassVar[Literal["P"]]
+    @classmethod
+    def from_param(cls, value: Any, /) -> Self | _CArgObject: ...
+
+c_voidp = c_void_p  # backwards compatibility (to a bug)
+
+class c_wchar(_SimpleCData[str]):
+    _type_: ClassVar[Literal["u"]]
+
+class c_wchar_p(_PointerLike, _SimpleCData[str | None]):
+    _type_: ClassVar[Literal["Z"]]
+    def __init__(self, value: int | str | None = ...) -> None: ...
+    @classmethod
+    def from_param(cls, value: Any, /) -> Self | _CArgObject: ...
 
 if sys.platform == "win32":
-    class HRESULT(_SimpleCData[int]): ...  # TODO undocumented
+    class HRESULT(_SimpleCData[int]):  # TODO: undocumented
+        _type_: ClassVar[Literal["l"]]
 
-class py_object(_CanCastTo, _SimpleCData[_T]): ...
-
-class _CField:
-    offset: int = ...
-    size: int = ...
-
-class _StructUnionMeta(_CDataMeta):
-    _fields_: Sequence[_UnionT[Tuple[str, Type[_CData]], Tuple[str, Type[_CData], int]]] = ...
-    _pack_: int = ...
-    _anonymous_: Sequence[str] = ...
-    def __getattr__(self, name: str) -> _CField: ...
-
-class _StructUnionBase(_CData, metaclass=_StructUnionMeta):
-    def __init__(self, *args: Any, **kw: Any) -> None: ...
-    def __getattr__(self, name: str) -> Any: ...
-    def __setattr__(self, name: str, value: Any) -> None: ...
-
-class Union(_StructUnionBase): ...
-class Structure(_StructUnionBase): ...
-class BigEndianStructure(Structure): ...
-class LittleEndianStructure(Structure): ...
-
-class Array(Generic[_CT], _CData):
-    _length_: ClassVar[int] = ...
-    _type_: ClassVar[Type[_CT]] = ...
-    raw: bytes = ...  # Note: only available if _CT == c_char
-    value: Any = ...  # Note: bytes if _CT == c_char, Text if _CT == c_wchar, unavailable otherwise
-    # TODO These methods cannot be annotated correctly at the moment.
-    # All of these "Any"s stand for the array's element type, but it's not possible to use _CT
-    # here, because of a special feature of ctypes.
-    # By default, when accessing an element of an Array[_CT], the returned object has type _CT.
-    # However, when _CT is a "simple type" like c_int, ctypes automatically "unboxes" the object
-    # and converts it to the corresponding Python primitive. For example, when accessing an element
-    # of an Array[c_int], a Python int object is returned, not a c_int.
-    # This behavior does *not* apply to subclasses of "simple types".
-    # If MyInt is a subclass of c_int, then accessing an element of an Array[MyInt] returns
-    # a MyInt, not an int.
-    # This special behavior is not easy to model in a stub, so for now all places where
-    # the array element type would belong are annotated with Any instead.
-    def __init__(self, *args: Any) -> None: ...
-    @overload
-    def __getitem__(self, i: int) -> Any: ...
-    @overload
-    def __getitem__(self, s: slice) -> List[Any]: ...
-    @overload
-    def __setitem__(self, i: int, o: Any) -> None: ...
-    @overload
-    def __setitem__(self, s: slice, o: Iterable[Any]) -> None: ...
-    def __iter__(self) -> Iterator[Any]: ...
-    # Can't inherit from Sized because the metaclass conflict between
-    # Sized and _CData prevents using _CDataMeta.
-    def __len__(self) -> int: ...
-    if sys.version_info >= (3, 9):
-        def __class_getitem__(cls, item: Any) -> GenericAlias: ...
+if sys.version_info >= (3, 12):
+    # At runtime, this is an alias for either c_int32 or c_int64,
+    # which are themselves an alias for one of c_int, c_long, or c_longlong
+    # This covers all our bases.
+    c_time_t: type[c_int32 | c_int64 | c_int | c_long | c_longlong]

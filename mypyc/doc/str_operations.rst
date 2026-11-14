@@ -12,24 +12,97 @@ Construction
 * String literal
 * ``str(x: int)``
 * ``str(x: object)``
+* ``repr(x: int)``
+* ``repr(x: object)``
+
+.. note::
+
+    :ref:`librt.strings.StringWriter <librt-string-writer>` can be used to efficiently
+    construct strings in compiled code.
 
 Operators
 ---------
 
 * Concatenation (``s1 + s2``)
-* Indexing (``s[n]``)
+* Indexing (``s[n]``; also ``ord(s[n])``, which avoids the temporary length-1 string)
 * Slicing (``s[n:m]``, ``s[n:]``, ``s[:m]``)
+* Repetition (``s * n``, ``n * s``)
 * Comparisons (``==``, ``!=``)
 * Augmented assignment (``s1 += s2``)
+* Containment (``s1 in s2``)
+
+.. _str-methods:
 
 Methods
 -------
 
+* ``s.encode()``
+* ``s.encode(encoding: str)``
+* ``s.encode(encoding: str, errors: str)``
 * ``s1.endswith(s2: str)``
+* ``s1.endswith(t: tuple[str, ...])``
+* ``s1.find(s2: str)``
+* ``s1.find(s2: str, start: int)``
+* ``s1.find(s2: str, start: int, end: int)``
+* ``s.isalnum()``
+* ``s.isalpha()``
+* ``s.isascii()``
+* ``s.isdecimal()``
+* ``s.isdigit()``
+* ``s.islower()``
+* ``s.isnumeric()``
+* ``s.isprintable()``
+* ``s.isspace()``
+* ``s.istitle()``
+* ``s.isupper()``
+* ``s.lower()``
 * ``s.join(x: Iterable)``
+* ``s.lstrip()``
+* ``s.lstrip(chars: str)``
+* ``s.partition(sep: str)``
+* ``s.removeprefix(prefix: str)``
+* ``s.removesuffix(suffix: str)``
 * ``s.replace(old: str, new: str)``
 * ``s.replace(old: str, new: str, count: int)``
+* ``s1.rfind(s2: str)``
+* ``s1.rfind(s2: str, start: int)``
+* ``s1.rfind(s2: str, start: int, end: int)``
+* ``s.rpartition(sep: str)``
+* ``s.rsplit()``
+* ``s.rsplit(sep: str)``
+* ``s.rsplit(sep: str, maxsplit: int)``
+* ``s.rstrip()``
+* ``s.rstrip(chars: str)``
 * ``s.split()``
 * ``s.split(sep: str)``
 * ``s.split(sep: str, maxsplit: int)``
+* ``s.splitlines()``
+* ``s.splitlines(keepends: bool)``
 * ``s1.startswith(s2: str)``
+* ``s1.startswith(t: tuple[str, ...])``
+* ``s.upper()``
+* ``s.strip()``
+* ``s.strip(chars: str)``
+
+.. note::
+
+    :ref:`bytes.decode() <bytes-methods>` is also optimized.
+
+Formatting
+----------
+
+A subset of these common string formatting expressions are optimized:
+
+* F-strings
+* ``"...".format(...)``
+* ``"..." % (...)``
+
+Functions
+---------
+
+* ``chr(i: int)``
+* ``len(s: str)``
+* ``ord(s: str)``
+
+  * Calls with a literal argument are treated as compile-time integer constants (e.g.
+    ``ord("A")`` is equivalent to 65).

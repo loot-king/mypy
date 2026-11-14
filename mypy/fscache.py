@@ -28,12 +28,14 @@ You should perform all file system reads through the API to actually take
 advantage of the benefits.
 """
 
+from __future__ import annotations
+
 import os
 import stat
-import sys
-from typing import Dict, List, Set
-from mypy.util import hash_digest
+
 from mypy_extensions import mypyc_attr
+
+from mypy.util import hash_digest
 
 
 @mypyc_attr(allow_interpreted_subclasses=True)  # for tests
@@ -41,43 +43,40 @@ class FileSystemCache:
     def __init__(self) -> None:
         # The package root is not flushed with the caches.
         # It is set by set_package_root() below.
-        self.package_root = []  # type: List[str]
+        self.package_root: list[str] = []
         self.flush()
 
-    def set_package_root(self, package_root: List[str]) -> None:
+    def set_package_root(self, package_root: list[str]) -> None:
         self.package_root = package_root
 
     def flush(self) -> None:
         """Start another transaction and empty all caches."""
-        self.stat_cache = {}  # type: Dict[str, os.stat_result]
-        self.stat_error_cache = {}  # type: Dict[str, OSError]
-        self.listdir_cache = {}  # type: Dict[str, List[str]]
-        self.listdir_error_cache = {}  # type: Dict[str, OSError]
-        self.isfile_case_cache = {}  # type: Dict[str, bool]
-        self.exists_case_cache = {}  # type: Dict[str, bool]
-        self.read_cache = {}  # type: Dict[str, bytes]
-        self.read_error_cache = {}  # type: Dict[str, Exception]
-        self.hash_cache = {}  # type: Dict[str, str]
-        self.fake_package_cache = set()  # type: Set[str]
+        self.stat_or_none_cache: dict[str, os.stat_result | None] = {}
 
-    def stat(self, path: str) -> os.stat_result:
-        if path in self.stat_cache:
-            return self.stat_cache[path]
-        if path in self.stat_error_cache:
-            raise copy_os_error(self.stat_error_cache[path])
+        self.listdir_cache: dict[str, list[str]] = {}
+        self.listdir_error_cache: dict[str, OSError] = {}
+        self.isfile_case_cache: dict[str, bool] = {}
+        self.exists_case_cache: dict[str, bool] = {}
+        self.read_cache: dict[str, bytes] = {}
+        self.read_error_cache: dict[str, Exception] = {}
+        self.hash_cache: dict[str, str] = {}
+        self.fake_package_cache: set[str] = set()
+
+    def stat_or_none(self, path: str) -> os.stat_result | None:
+        if path in self.stat_or_none_cache:
+            return self.stat_or_none_cache[path]
+
+        st = None
         try:
             st = os.stat(path)
-        except OSError as err:
+        except OSError:
             if self.init_under_package_root(path):
                 try:
-                    return self._fake_init(path)
+                    st = self._fake_init(path)
                 except OSError:
                     pass
-            # Take a copy to get rid of associated traceback and frame objects.
-            # Just assigning to __traceback__ doesn't free them.
-            self.stat_error_cache[path] = copy_os_error(err)
-            raise err
-        self.stat_cache[path] = st
+
+        self.stat_or_none_cache[path] = st
         return st
 
     def init_under_package_root(self, path: str) -> bool:
@@ -99,23 +98,31 @@ class FileSystemCache:
         necessary for mypy to properly distinguish packages from other
         directories.
 
-        See https://docs.bazel.build/versions/master/be/python.html,
+        See https://bazel.build/reference/be/python,
         where this behavior is described under legacy_create_init.
         """
         if not self.package_root:
             return False
         dirname, basename = os.path.split(path)
-        if basename != '__init__.py':
+        if basename != "__init__.py":
             return False
-        try:
-            st = self.stat(dirname)
-        except OSError:
+        if not os.path.basename(dirname).isidentifier():
+            # Can't put an __init__.py in a place that's not an identifier
+            return False
+
+        st = self.stat_or_none(dirname)
+        if st is None:
             return False
         else:
             if not stat.S_ISDIR(st.st_mode):
                 return False
         ok = False
-        drive, path = os.path.splitdrive(path)  # Ignore Windows drive name
+
+        # skip if on a different drive
+        current_drive, _ = os.path.splitdrive(os.getcwd())
+        drive, _ = os.path.splitdrive(path)
+        if drive != current_drive:
+            return False
         if os.path.isabs(path):
             path = os.path.relpath(path)
         path = os.path.normpath(path)
@@ -137,32 +144,28 @@ class FileSystemCache:
         init_under_package_root() returns True.
         """
         dirname, basename = os.path.split(path)
-        assert basename == '__init__.py', path
+        assert basename == "__init__.py", path
         assert not os.path.exists(path), path  # Not cached!
         dirname = os.path.normpath(dirname)
-        st = self.stat(dirname)  # May raise OSError
-        # Get stat result as a sequence so we can modify it.
-        # (Alas, typeshed's os.stat_result is not a sequence yet.)
-        tpl = tuple(st)  # type: ignore[arg-type, var-annotated]
-        seq = list(tpl)  # type: List[float]
+        st = os.stat(dirname)  # May raise OSError
+        # Get stat result as a list so we can modify it.
+        seq: list[float] = list(st)
         seq[stat.ST_MODE] = stat.S_IFREG | 0o444
         seq[stat.ST_INO] = 1
         seq[stat.ST_NLINK] = 1
         seq[stat.ST_SIZE] = 0
-        tpl = tuple(seq)
-        st = os.stat_result(tpl)
-        self.stat_cache[path] = st
+        st = os.stat_result(seq)
         # Make listdir() and read() also pretend this file exists.
         self.fake_package_cache.add(dirname)
         return st
 
-    def listdir(self, path: str) -> List[str]:
+    def listdir(self, path: str) -> list[str]:
         path = os.path.normpath(path)
         if path in self.listdir_cache:
             res = self.listdir_cache[path]
             # Check the fake cache.
-            if path in self.fake_package_cache and '__init__.py' not in res:
-                res.append('__init__.py')  # Updates the result as well as the cache
+            if path in self.fake_package_cache and "__init__.py" not in res:
+                res.append("__init__.py")  # Updates the result as well as the cache
             return res
         if path in self.listdir_error_cache:
             raise copy_os_error(self.listdir_error_cache[path])
@@ -174,14 +177,13 @@ class FileSystemCache:
             raise err
         self.listdir_cache[path] = results
         # Check the fake cache.
-        if path in self.fake_package_cache and '__init__.py' not in results:
-            results.append('__init__.py')
+        if path in self.fake_package_cache and "__init__.py" not in results:
+            results.append("__init__.py")
         return results
 
     def isfile(self, path: str) -> bool:
-        try:
-            st = self.stat(path)
-        except OSError:
+        st = self.stat_or_none(path)
+        if st is None:
             return False
         return stat.S_ISREG(st.st_mode)
 
@@ -199,9 +201,6 @@ class FileSystemCache:
 
         The caller must ensure that prefix is a valid file system prefix of path.
         """
-        if sys.platform == "linux":
-            # Assume that the file system on Linux is case sensitive
-            return self.isfile(path)
         if not self.isfile(path):
             # Fast path
             return False
@@ -220,12 +219,14 @@ class FileSystemCache:
             res = False
         if res:
             # Also recursively check the other path components in case sensitive way.
-            res = self._exists_case(head, prefix)
+            res = self.exists_case(head, prefix)
         self.isfile_case_cache[path] = res
         return res
 
-    def _exists_case(self, path: str, prefix: str) -> bool:
-        """Helper to check path components in case sensitive fashion, up to prefix."""
+    def exists_case(self, path: str, prefix: str) -> bool:
+        """Return whether path exists - checking path components in case sensitive
+        fashion, up to prefix.
+        """
         if path in self.exists_case_cache:
             return self.exists_case_cache[path]
         head, tail = os.path.split(path)
@@ -242,22 +243,23 @@ class FileSystemCache:
             res = False
         if res:
             # Also recursively check other path components.
-            res = self._exists_case(head, prefix)
+            res = self.exists_case(head, prefix)
         self.exists_case_cache[path] = res
         return res
 
     def isdir(self, path: str) -> bool:
-        try:
-            st = self.stat(path)
-        except OSError:
+        st = self.stat_or_none(path)
+        if st is None:
             return False
         return stat.S_ISDIR(st.st_mode)
 
-    def exists(self, path: str) -> bool:
-        try:
-            self.stat(path)
-        except FileNotFoundError:
+    def exists(self, path: str, real_only: bool = False) -> bool:
+        st = self.stat_or_none(path)
+        if st is None:
             return False
+        if real_only:
+            dirname = os.path.dirname(path)
+            return dirname not in self.fake_package_cache
         return True
 
     def read(self, path: str) -> bytes:
@@ -268,16 +270,16 @@ class FileSystemCache:
 
         # Need to stat first so that the contents of file are from no
         # earlier instant than the mtime reported by self.stat().
-        self.stat(path)
+        self.stat_or_none(path)
 
         dirname, basename = os.path.split(path)
         dirname = os.path.normpath(dirname)
         # Check the fake cache.
-        if basename == '__init__.py' and dirname in self.fake_package_cache:
-            data = b''
+        if basename == "__init__.py" and dirname in self.fake_package_cache:
+            data = b""
         else:
             try:
-                with open(path, 'rb') as f:
+                with open(path, "rb") as f:
                     data = f.read()
             except OSError as err:
                 self.read_error_cache[path] = err
@@ -293,8 +295,10 @@ class FileSystemCache:
         return self.hash_cache[path]
 
     def samefile(self, f1: str, f2: str) -> bool:
-        s1 = self.stat(f1)
-        s2 = self.stat(f2)
+        s1 = self.stat_or_none(f1)
+        s2 = self.stat_or_none(f2)
+        if s1 is None or s2 is None:
+            return False
         return os.path.samestat(s1, s2)
 
 

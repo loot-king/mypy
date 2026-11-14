@@ -95,9 +95,80 @@ class Sub(NT):
     pass
 assert f(Sub(3, 2)) == 3
 
+-- Ref: https://github.com/mypyc/mypyc/issues/924
+[case testNamedTupleClassSyntax]
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union, final
+
+class FuncIR: pass
+
+StealsDescription = Union[bool, List[bool]]
+
+class Record(NamedTuple):
+    st_mtime: float
+    st_size: int
+    is_borrowed: bool
+    hash: str
+    python_path: Tuple[str, ...]
+    type: 'ClassIR'
+    method: FuncIR
+    shadow_method: Optional[FuncIR]
+    classes: Dict[str, 'ClassIR']
+    steals: StealsDescription
+    ordering: Optional[List[int]]
+    extra_int_constants: List[Tuple[int]]
+
+# Make sure mypyc loads the annotation string for this forward reference.
+# Ref: https://github.com/mypyc/mypyc/issues/938
+class ClassIR: pass
+
+# Ref: https://github.com/mypyc/mypyc/issues/927
+@final
+class Inextensible(NamedTuple):
+    x: int
+
+[file driver.py]
+import sys
+from typing import Optional
+from native import ClassIR, FuncIR, Record
+
+HAVE_TEST = False
+if sys.version_info >= (3, 14):
+    try:
+        from test.support import EqualToForwardRef
+        type_forward_ref = EqualToForwardRef
+        HAVE_TEST = True
+    except ImportError as e:
+        # catch the case of a pymanager installed Python
+        # without the test module. It is excluded by default
+        # on Windows.
+        msg = 'Missing "test" module.'
+        if sys.platform == "win32":
+            msg += (' Please install a version of Python with the test module.'
+                   ' If you are using pymanager, try running pymanager install --force PythonTest\\<version>')
+        raise ImportError(msg) from e
+
+if not HAVE_TEST:
+    from typing import ForwardRef
+    type_forward_ref = ForwardRef
+
+assert Record.__annotations__ == {
+    'st_mtime': float,
+    'st_size': int,
+    'is_borrowed': bool,
+    'hash': str,
+    'python_path': tuple,
+    'type': type_forward_ref('ClassIR'),
+    'method': FuncIR,
+    'shadow_method': type,
+    'classes': dict,
+    'steals': type,
+    'ordering': type,
+    'extra_int_constants': list,
+}, Record.__annotations__
+
 [case testTupleOps]
-from typing import Tuple, List, Any, Optional
-from typing_extensions import Final
+from typing import Tuple, Final, List, Any, Optional, cast
+from testutil import assertRaises
 
 def f() -> Tuple[()]:
     return ()
@@ -145,6 +216,22 @@ def f7(x: List[Tuple[int, int]]) -> int:
 def test_unbox_tuple() -> None:
     assert f7([(5, 6)]) == 11
 
+def test_comparison() -> None:
+    assert ('x','y') == ('x','y')
+    assert not(('x','y') != ('x','y'))
+
+    assert ('x','y') != ('x','y',1)
+    assert not(('x','y') == ('x','y',1))
+
+    assert ('x','y',1) != ('x','y')
+    assert not(('x','y',1) == ('x','y'))
+
+    assert ('x','y') != ()
+    assert not(('x','y') == ())
+
+    assert () != ('x','y')
+    assert not(() == ('x','y'))
+
 # Test that order is irrelevant to unions. Really I only care that this builds.
 
 class A:
@@ -183,6 +270,11 @@ def test_slicing() -> None:
 def f8(val: int) -> bool:
     return val % 2 == 0
 
+abc: Final = "abc"
+
+def known_length() -> tuple[str, ...]:
+    return tuple(str(x) for x in [*abc, *"def", *b"ghi", ("j", "k"), *("l", "m", "n")])
+
 def test_sequence_generator() -> None:
     source_list = [1, 2, 3]
     a = tuple(f8(x) for x in source_list)
@@ -196,8 +288,301 @@ def test_sequence_generator() -> None:
     a = tuple(f8(x) for x in source_fixed_length_tuple)
     assert a == (False, True, False, True)
 
+    source_str = 'abbc'
+    b = tuple('s:' + x for x in source_str)
+    assert b == ('s:a', 's:b', 's:b', 's:c')
+
+    assert known_length() == ('a', 'b', 'c', 'd', 'e', 'f', '103', '104', '105', "('j', 'k')", 'l', 'm', 'n')
+
 TUPLE: Final[Tuple[str, ...]] = ('x', 'y')
 
 def test_final_boxed_tuple() -> None:
     t = TUPLE
     assert t == ('x', 'y')
+    assert 'x' in TUPLE
+    assert 'y' in TUPLE
+    b: object = 'z' in TUPLE
+    assert not b
+    assert 'z' not in TUPLE
+    b2: object = 'x' not in TUPLE
+    assert not b2
+    b3: object = 'y' not in TUPLE
+    assert not b3
+
+TUP2: Final = ('x', 'y')
+TUP1: Final = ('x',)
+TUP0: Final = ()
+
+def test_final_tuple_in() -> None:
+    assert 'x' + str() in TUP2
+    assert 'y' + str() in TUP2
+    b: object = 'z' + str() in TUP2
+    assert not b
+
+    assert 'x' + str() in TUP1
+    b2: object = 'y' in TUP1
+    assert not b2
+
+    b3: object = 'x' in TUP0
+    assert not b3
+
+def test_final_tuple_not_in() -> None:
+    assert 'z' + str() not in TUP2
+    b: object = 'x' + str() not in TUP2
+    assert not b
+    b2: object = 'y' + str() not in TUP2
+    assert not b2
+
+    assert 'y' + str() not in TUP1
+    b3: object = 'x' not in TUP1
+    assert not b2
+
+    assert 'x' not in TUP0
+
+log: list[str] = []
+
+def f_a() -> str:
+    log.append('f_a')
+    return 'a'
+
+def f_a2() -> str:
+    log.append('f_a2')
+    return 'a'
+
+def f_b() -> str:
+    log.append('f_b')
+    return 'b'
+
+def f_c() -> str:
+    log.append('f_c')
+    return 'c'
+
+def test_tuple_in_order_of_evaluation() -> None:
+    log.clear()
+    assert f_a() in (f_b(), f_a2())
+    assert log ==["f_a", "f_b", "f_a2"]
+
+    log.clear()
+    assert f_a() not in (f_b(), f_c())
+    assert log ==["f_a", "f_b", "f_c"]
+
+    log.clear()
+    assert f_a() in (f_b(), f_a2(), f_c())
+    assert log ==["f_a", "f_b", "f_a2", "f_c"]
+
+def f_t() -> tuple[str, ...]:
+    log.append('f_t')
+    return ('x', 'a')
+
+def test_tuple_in_non_specialized() -> None:
+    log.clear()
+    assert f_a() in f_t()
+    assert log == ["f_a", "f_t"]
+
+    log.clear()
+    assert f_b() not in f_t()
+    assert log == ["f_b", "f_t"]
+
+class NeverEqual:
+    def __eq__(self, other: object) -> bool:
+        return False
+
+    def __ne__(self, other: object) -> bool:
+        return False
+
+def test_tuple_and_list_in_identity() -> None:
+    # Membership tests compare identity before equality
+    x = NeverEqual()
+    y = NeverEqual()
+    assert x in (x,)
+    assert x in [x]
+    assert x in (y, x)
+    assert x in [y, x]
+    assert y not in (x,)
+    assert y not in [x]
+    assert y not in (x, x)
+    assert y not in [x, x]
+    assert not (x not in (x,))
+    assert not (x not in [y, x])
+    a: Any = x
+    assert a in (a,)
+    assert a in (y, a)
+    assert not (a not in (y, a))
+    f = float("nan")
+    assert f in (f,)
+    assert f in [1.0, f]
+
+def test_add() -> None:
+    res = (1, 2, 3, 4)
+    assert (1, 2) + (3, 4) == res
+    with assertRaises(TypeError, 'can only concatenate tuple (not "list") to tuple'):
+        assert (1, 2) + cast(Any, [3, 4]) == res
+
+def multiply(a: Tuple[Any, ...], b: int) -> Tuple[Any, ...]:
+    return a * b
+
+def test_multiply() -> None:
+    res = (1, 1, 1)
+    assert (1,) * 3 == res
+    assert 3 * (1,) == res
+    assert multiply((1,), 3) == res
+
+# Ref: https://github.com/mypyc/mypyc/issues/1179
+def test_tuple_with_walrus() -> None:
+    i = 0
+    assert (i, (i := i + 1), i, (i := i + 1), i, (i := i + 1), i) == (0, 1, 1, 2, 2, 3, 3)
+
+def test_nested_tuple_with_walrus() -> None:
+    i = 0
+    assert ((i, i), (i := i + 1)) == ((0, 0), 1)
+
+[case testIsInstance]
+from copysubclass import subc
+def test_built_in() -> None:
+    assert isinstance((), tuple)
+    assert isinstance((1, 2), tuple)
+    assert isinstance(('a', 'b', 'c'), tuple)
+    assert isinstance(subc(()), tuple)
+    assert isinstance(subc((1, 2)), tuple)
+    assert isinstance(subc(('a', 'b', 'c')), tuple)
+
+    assert not isinstance(set(), tuple)
+    assert not isinstance({}, tuple)
+    assert not isinstance([1,2,3], tuple)
+    assert not isinstance({'a','b'}, tuple)
+    assert not isinstance(int() + 1, tuple)
+    assert not isinstance(str() + 'a', tuple)
+
+def test_user_defined() -> None:
+    from userdefinedtuple import tuple
+
+    assert isinstance(tuple(), tuple)
+    assert not isinstance((1, tuple()), tuple)
+
+[file copysubclass.py]
+from typing import Any
+class subc(tuple[Any, ...]):
+    pass
+
+[file userdefinedtuple.py]
+class tuple:
+    pass
+
+[case testTupleOpsOverridingSubclass]
+from typing import Tuple
+from testutil import assertRaises
+from tuplesub import BadTuple, GoodTuple
+
+def add(a: Tuple[int, ...], b: Tuple[int, ...]) -> Tuple[int, ...]:
+    return a + b
+
+def mul(a: Tuple[int, ...], n: int) -> Tuple[int, ...]:
+    return a * n
+
+def rmul(a: Tuple[int, ...], n: int) -> Tuple[int, ...]:
+    return n * a
+
+def test_bad_result_type() -> None:
+    a: Tuple[int, ...] = BadTuple((1,))
+    with assertRaises(TypeError, "tuple object expected; got int"):
+        add(a, (2,))
+    with assertRaises(TypeError, "tuple object expected; got int"):
+        mul(a, 2)
+    with assertRaises(TypeError, "tuple object expected; got int"):
+        rmul(a, 2)
+
+def test_overrides_called() -> None:
+    a: Tuple[int, ...] = GoodTuple((1,))
+    assert add(a, (2,)) == (1, 2, 0)
+    assert mul(a, 2) == (1, 1, 2)
+    assert rmul(a, 2) == (1, 1, 3)
+    assert type(rmul(a, 2)) is GoodTuple
+    assert rmul((1,), 2) == (1, 1)
+
+[file tuplesub.py]
+from typing import Any
+
+class BadTuple(tuple):
+    def __add__(self, other: Any) -> Any:
+        return 1
+    def __mul__(self, n: Any) -> Any:
+        return 2
+    def __rmul__(self, n: Any) -> Any:
+        return 3
+
+class GoodTuple(tuple):
+    def __add__(self, other: Any) -> Any:
+        return GoodTuple(tuple(self) + other + (0,))
+    def __mul__(self, n: Any) -> Any:
+        return GoodTuple(tuple(self) * n + (2,))
+    def __rmul__(self, n: Any) -> Any:
+        return GoodTuple(tuple(self) * n + (3,))
+
+[case testTupleHash]
+from typing import Any, Tuple
+
+from mypy_extensions import i64, u16, u32, u64
+from testutil import assertRaises
+
+def boxed(t: Any) -> int:
+    # hash() of a tuple object
+    return hash(t)
+
+INTS = [0, 1, -1, -2, 2**30, -(2**30), 2**61 - 1, 2**61, -(2**61), -(2**61) - 1, 2**62 - 1,
+        -(2**62), 2**62, 2**63, -(2**100)]
+
+def test_ints() -> None:
+    for a in INTS:
+        for b in INTS:
+            assert hash((a, b)) == boxed((a, b))
+        assert hash((a,)) == boxed((a,))
+        assert hash((a, a, a, a, a)) == boxed((a, a, a, a, a))
+
+def test_fixed_width_ints() -> None:
+    for x in [0, 1, -1, -2, 2**62 - 1, 2**62, -(2**62) - 1, 2**63 - 1, -(2**63)]:
+        n: i64 = x
+        assert hash((n, x)) == boxed((n, x))
+    for x in [0, 1, 2**62 - 1, 2**62, 2**63, 2**64 - 1]:
+        n64: u64 = x
+        assert hash((n64, 1)) == boxed((n64, 1))
+    for x in [0, 2**31, 2**32 - 1]:
+        n32: u32 = x
+        assert hash((n32, 1)) == boxed((n32, 1))
+    for x in [0, 2**16 - 1]:
+        n16: u16 = x
+        assert hash((n16, 1)) == boxed((n16, 1))
+
+def test_other_items() -> None:
+    assert hash(()) == boxed(())
+    for b in [True, False]:
+        assert hash((b, 1 > 2)) == boxed((b, 1 > 2))
+    for f in [0.0, -0.0, 1.5, float("inf")]:
+        assert hash((f, "x", None)) == boxed((f, "x", None))
+    for o in [None, 5]:
+        assert hash((o, 1)) == boxed((o, 1))
+    assert hash((1, (2, (3, "a")), ())) == boxed((1, (2, (3, "a")), ()))
+
+def hash_arg(t: Tuple[int, str]) -> int:
+    return hash(t)
+
+class Point:
+    def __init__(self, x: int, y: int, label: str) -> None:
+        self.x = x
+        self.y = y
+        self.label = label
+
+    def __hash__(self) -> int:
+        return hash((self.x, self.y, self.label))
+
+def test_tuple_values() -> None:
+    assert hash_arg((3, "x")) == boxed((3, "x"))
+    assert hash(Point(3, -4, "p")) == boxed((3, -4, "p"))
+
+def test_unhashable_item() -> None:
+    a: Any = []
+    with assertRaises(TypeError, "unhashable type: 'list'"):
+        hash((1, a))
+    with assertRaises(TypeError, "unhashable type: 'list'"):
+        hash((a, 1))
+    with assertRaises(TypeError, "unhashable type: 'list'"):
+        hash((1, (2, a)))

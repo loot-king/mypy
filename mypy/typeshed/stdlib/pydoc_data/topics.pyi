@@ -1,3 +1,3 @@
-from typing import Dict
+from typing import Final
 
-topics: Dict[str, str]
+topics: Final[dict[str, str]]

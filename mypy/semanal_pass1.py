@@ -1,12 +1,30 @@
 """Block/import reachability analysis."""
 
+from __future__ import annotations
+
 from mypy.nodes import (
-    MypyFile, AssertStmt, IfStmt, Block, AssignmentStmt, ExpressionStmt, ReturnStmt, ForStmt,
-    Import, ImportAll, ImportFrom, ClassDef, FuncDef
+    AssertStmt,
+    AssignmentStmt,
+    Block,
+    ClassDef,
+    ExpressionStmt,
+    ForStmt,
+    FuncDef,
+    IfStmt,
+    Import,
+    ImportAll,
+    ImportFrom,
+    MatchStmt,
+    MypyFile,
+    ReturnStmt,
+)
+from mypy.options import Options
+from mypy.reachability import (
+    assert_will_always_fail,
+    infer_reachability_of_if_statement,
+    infer_reachability_of_match_statement,
 )
 from mypy.traverser import TraverserVisitor
-from mypy.options import Options
-from mypy.reachability import infer_reachability_of_if_statement, assert_will_always_fail
 
 
 class SemanticAnalyzerPreAnalysis(TraverserVisitor):
@@ -27,24 +45,23 @@ class SemanticAnalyzerPreAnalysis(TraverserVisitor):
 
       import sys
 
-      def do_stuff():
-          # type: () -> None:
-          if sys.python_version < (3,):
-              import xyz  # Only available in Python 2
+      def do_stuff() -> None:
+          if sys.version_info >= (3, 11):
+              import xyz  # Only available in Python 3.11+
               xyz.whatever()
           ...
 
-    The block containing 'import xyz' is unreachable in Python 3 mode. The import
-    shouldn't be processed in Python 3 mode, even if the module happens to exist.
+    The block containing 'import xyz' is unreachable in Python 3.10 mode. The import
+    shouldn't be processed in Python 3.10 mode, even if the module happens to exist.
     """
 
     def visit_file(self, file: MypyFile, fnam: str, mod_id: str, options: Options) -> None:
-        self.pyversion = options.python_version
         self.platform = options.platform
         self.cur_mod_id = mod_id
         self.cur_mod_node = file
         self.options = options
         self.is_global_scope = True
+        self.skipped_lines: set[int] = set()
 
         for i, defn in enumerate(file.defs):
             defn.accept(self)
@@ -52,8 +69,17 @@ class SemanticAnalyzerPreAnalysis(TraverserVisitor):
                 # We've encountered an assert that's always false,
                 # e.g. assert sys.platform == 'lol'.  Truncate the
                 # list of statements.  This mutates file.defs too.
-                del file.defs[i + 1:]
+                if i < len(file.defs) - 1:
+                    next_def, last = file.defs[i + 1], file.defs[-1]
+                    if last.end_line is not None:
+                        # We are on a Python version recent enough to support end lines.
+                        self.skipped_lines |= set(range(next_def.line, last.end_line + 1))
+                file.imports = [
+                    i for i in file.imports if (i.line, i.column) <= (defn.line, defn.column)
+                ]
+                del file.defs[i + 1 :]
                 break
+        file.skipped_lines = self.skipped_lines
 
     def visit_func_def(self, node: FuncDef) -> None:
         old_global_scope = self.is_global_scope
@@ -61,10 +87,12 @@ class SemanticAnalyzerPreAnalysis(TraverserVisitor):
         super().visit_func_def(node)
         self.is_global_scope = old_global_scope
         file_node = self.cur_mod_node
-        if (self.is_global_scope
-                and file_node.is_stub
-                and node.name == '__getattr__'
-                and file_node.is_package_init_file()):
+        if (
+            self.is_global_scope
+            and file_node.is_stub
+            and node.name == "__getattr__"
+            and file_node.is_package_init_file()
+        ):
             # __init__.pyi with __getattr__ means that any submodules are assumed
             # to exist, even if there is no stub. Note that we can't verify that the
             # return type is compatible, since we haven't bound types yet.
@@ -99,8 +127,19 @@ class SemanticAnalyzerPreAnalysis(TraverserVisitor):
 
     def visit_block(self, b: Block) -> None:
         if b.is_unreachable:
+            if b.end_line is not None:
+                # We are on a Python version recent enough to support end lines.
+                self.skipped_lines |= set(range(b.line, b.end_line + 1))
             return
         super().visit_block(b)
+
+    def visit_match_stmt(self, s: MatchStmt) -> None:
+        infer_reachability_of_match_statement(s, self.options)
+        for guard in s.guards:
+            if guard is not None:
+                guard.accept(self)
+        for body in s.bodies:
+            body.accept(self)
 
     # The remaining methods are an optimization: don't visit nested expressions
     # of common statements, since they can have no effect.

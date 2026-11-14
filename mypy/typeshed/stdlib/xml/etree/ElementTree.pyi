@@ -1,336 +1,316 @@
 import sys
-from _typeshed import AnyPath, FileDescriptor, SupportsWrite
-from typing import (
-    IO,
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    ItemsView,
-    Iterable,
-    Iterator,
-    KeysView,
-    List,
-    MutableSequence,
-    Optional,
-    Sequence,
-    Text,
-    Tuple,
-    TypeVar,
-    Union,
-    overload,
-)
-from typing_extensions import Literal
+from _collections_abc import dict_keys
+from _typeshed import FileDescriptorOrPath, ReadableBuffer, SupportsRead, SupportsWrite
+from collections.abc import Callable, Generator, ItemsView, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Final, Generic, Literal, Protocol, SupportsIndex, TypeAlias, TypeGuard, TypeVar, overload, type_check_only
+from typing_extensions import deprecated, disjoint_base
+from xml.parsers.expat import XMLParserType
 
-VERSION: str
+__all__ = [
+    "C14NWriterTarget",
+    "Comment",
+    "dump",
+    "Element",
+    "ElementTree",
+    "canonicalize",
+    "fromstring",
+    "fromstringlist",
+    "indent",
+    "iselement",
+    "iterparse",
+    "parse",
+    "ParseError",
+    "PI",
+    "ProcessingInstruction",
+    "QName",
+    "SubElement",
+    "tostring",
+    "tostringlist",
+    "TreeBuilder",
+    "XML",
+    "XMLID",
+    "XMLParser",
+    "XMLPullParser",
+    "register_namespace",
+]
+if sys.version_info < (3, 15):
+    __all__ += ["VERSION"]
+
+_T = TypeVar("_T")
+_FileRead: TypeAlias = FileDescriptorOrPath | SupportsRead[bytes] | SupportsRead[str]
+_FileWriteC14N: TypeAlias = FileDescriptorOrPath | SupportsWrite[bytes]
+_FileWrite: TypeAlias = _FileWriteC14N | SupportsWrite[str]
+
+VERSION: Final[str]
 
 class ParseError(SyntaxError):
     code: int
-    position: Tuple[int, int]
+    position: tuple[int, int]
 
-def iselement(element: object) -> bool: ...
+# In reality it works based on `.tag` attribute duck typing.
+def iselement(element: object) -> TypeGuard[Element]: ...
 
-_T = TypeVar("_T")
+@overload
+def canonicalize(
+    xml_data: str | ReadableBuffer | None = None,
+    *,
+    out: None = None,
+    from_file: _FileRead | None = None,
+    with_comments: bool = False,
+    strip_text: bool = False,
+    rewrite_prefixes: bool = False,
+    qname_aware_tags: Iterable[str] | None = None,
+    qname_aware_attrs: Iterable[str] | None = None,
+    exclude_attrs: Iterable[str] | None = None,
+    exclude_tags: Iterable[str] | None = None,
+) -> str: ...
+@overload
+def canonicalize(
+    xml_data: str | ReadableBuffer | None = None,
+    *,
+    out: SupportsWrite[str],
+    from_file: _FileRead | None = None,
+    with_comments: bool = False,
+    strip_text: bool = False,
+    rewrite_prefixes: bool = False,
+    qname_aware_tags: Iterable[str] | None = None,
+    qname_aware_attrs: Iterable[str] | None = None,
+    exclude_attrs: Iterable[str] | None = None,
+    exclude_tags: Iterable[str] | None = None,
+) -> None: ...
 
-# Type for parser inputs. Parser will accept any unicode/str/bytes and coerce,
-# and this is true in py2 and py3 (even fromstringlist() in python3 can be
-# called with a heterogeneous list)
-_parser_input_type = Union[bytes, Text]
+# The tag for Element can be set to the Comment or ProcessingInstruction
+# functions defined in this module.
+_ElementCallable: TypeAlias = Callable[..., Element[_ElementCallable]]
 
-# Type for individual tag/attr/ns/text values in args to most functions.
-# In py2, the library accepts str or unicode everywhere and coerces
-# aggressively.
-# In py3, bytes is not coerced to str and so use of bytes is probably an error,
-# so we exclude it. (why? the parser never produces bytes when it parses XML,
-# so e.g., element.get(b'name') will always return None for parsed XML, even if
-# there is a 'name' attribute.)
-_str_argument_type = Union[str, Text]
+_Tag = TypeVar("_Tag", default=str, bound=str | _ElementCallable)
+_OtherTag = TypeVar("_OtherTag", default=str, bound=str | _ElementCallable)
 
-# Type for return values from individual tag/attr/text values
-if sys.version_info >= (3,):
-    # note: in python3, everything comes out as str, yay:
-    _str_result_type = str
-else:
-    # in python2, if the tag/attribute/text wasn't decode-able as ascii, it
-    # comes out as a unicode string; otherwise it comes out as str. (see
-    # _fixtext function in the source). Client code knows best:
-    _str_result_type = Any
-
-_file_or_filename = Union[AnyPath, FileDescriptor, IO[Any]]
-
-if sys.version_info >= (3, 8):
-    @overload
-    def canonicalize(
-        xml_data: Optional[_parser_input_type] = ...,
-        *,
-        out: None = ...,
-        from_file: Optional[_file_or_filename] = ...,
-        with_comments: bool = ...,
-        strip_text: bool = ...,
-        rewrite_prefixes: bool = ...,
-        qname_aware_tags: Optional[Iterable[str]] = ...,
-        qname_aware_attrs: Optional[Iterable[str]] = ...,
-        exclude_attrs: Optional[Iterable[str]] = ...,
-        exclude_tags: Optional[Iterable[str]] = ...,
-    ) -> str: ...
-    @overload
-    def canonicalize(
-        xml_data: Optional[_parser_input_type] = ...,
-        *,
-        out: SupportsWrite[str],
-        from_file: Optional[_file_or_filename] = ...,
-        with_comments: bool = ...,
-        strip_text: bool = ...,
-        rewrite_prefixes: bool = ...,
-        qname_aware_tags: Optional[Iterable[str]] = ...,
-        qname_aware_attrs: Optional[Iterable[str]] = ...,
-        exclude_attrs: Optional[Iterable[str]] = ...,
-        exclude_tags: Optional[Iterable[str]] = ...,
-    ) -> None: ...
-
-class Element(MutableSequence[Element]):
-    tag: _str_result_type
-    attrib: Dict[_str_result_type, _str_result_type]
-    text: Optional[_str_result_type]
-    tail: Optional[_str_result_type]
-    def __init__(
-        self,
-        tag: Union[_str_argument_type, Callable[..., Element]],
-        attrib: Dict[_str_argument_type, _str_argument_type] = ...,
-        **extra: _str_argument_type,
-    ) -> None: ...
-    def append(self, __subelement: Element) -> None: ...
+@disjoint_base
+class Element(Generic[_Tag]):
+    tag: _Tag
+    attrib: dict[str, str]
+    text: str | None
+    tail: str | None
+    def __init__(self, tag: _Tag, attrib: dict[str, str] = {}, **extra: str) -> None: ...
+    def append(self, subelement: Element[Any], /) -> None: ...
     def clear(self) -> None: ...
-    def extend(self, __elements: Iterable[Element]) -> None: ...
-    def find(
-        self, path: _str_argument_type, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> Optional[Element]: ...
-    def findall(
-        self, path: _str_argument_type, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> List[Element]: ...
+    def extend(self, elements: Iterable[Element[Any]], /) -> None: ...
+    def find(self, path: str, namespaces: dict[str, str] | None = None) -> Element | None: ...
+    def findall(self, path: str, namespaces: dict[str, str] | None = None) -> list[Element]: ...
+
     @overload
-    def findtext(
-        self,
-        path: _str_argument_type,
-        default: None = ...,
-        namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...,
-    ) -> Optional[_str_result_type]: ...
+    def findtext(self, path: str, default: None = None, namespaces: dict[str, str] | None = None) -> str | None: ...
     @overload
-    def findtext(
-        self, path: _str_argument_type, default: _T, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> Union[_T, _str_result_type]: ...
+    def findtext(self, path: str, default: _T, namespaces: dict[str, str] | None = None) -> _T | str: ...
+
     @overload
-    def get(self, key: _str_argument_type, default: None = ...) -> Optional[_str_result_type]: ...
+    def get(self, key: str, default: None = None) -> str | None: ...
     @overload
-    def get(self, key: _str_argument_type, default: _T) -> Union[_str_result_type, _T]: ...
-    if sys.version_info >= (3, 2):
-        def insert(self, __index: int, __subelement: Element) -> None: ...
-    else:
-        def insert(self, __index: int, __element: Element) -> None: ...
-    def items(self) -> ItemsView[_str_result_type, _str_result_type]: ...
-    def iter(self, tag: Optional[_str_argument_type] = ...) -> Generator[Element, None, None]: ...
-    def iterfind(
-        self, path: _str_argument_type, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> Generator[Element, None, None]: ...
-    def itertext(self) -> Generator[_str_result_type, None, None]: ...
-    def keys(self) -> KeysView[_str_result_type]: ...
-    def makeelement(self, __tag: _str_argument_type, __attrib: Dict[_str_argument_type, _str_argument_type]) -> Element: ...
-    def remove(self, __subelement: Element) -> None: ...
-    def set(self, __key: _str_argument_type, __value: _str_argument_type) -> None: ...
-    def __delitem__(self, i: Union[int, slice]) -> None: ...
+    def get(self, key: str, default: _T) -> str | _T: ...
+
+    def insert(self, index: int, subelement: Element[Any], /) -> None: ...
+    def items(self) -> ItemsView[str, str]: ...
+    def iter(self, tag: str | None = None) -> Generator[Element]: ...
+
     @overload
-    def __getitem__(self, i: int) -> Element: ...
+    def iterfind(self, path: Literal[""], namespaces: dict[str, str] | None = None) -> None: ...  # type: ignore[overload-overlap]
     @overload
-    def __getitem__(self, s: slice) -> MutableSequence[Element]: ...
+    def iterfind(self, path: str, namespaces: dict[str, str] | None = None) -> Generator[Element]: ...
+
+    def itertext(self) -> Generator[str]: ...
+    def keys(self) -> dict_keys[str, str]: ...
+    # makeelement returns the type of self in Python impl, but not in C impl
+    def makeelement(self, tag: _OtherTag, attrib: dict[str, str], /) -> Element[_OtherTag]: ...
+    def remove(self, subelement: Element[Any], /) -> None: ...
+    def set(self, key: str, value: str, /) -> None: ...
+    def __copy__(self) -> Element[_Tag]: ...  # returns the type of self in Python impl, but not in C impl
+    def __deepcopy__(self, memo: Any, /) -> Element: ...  # Only exists in C impl
+    def __delitem__(self, key: SupportsIndex | slice, /) -> None: ...
+
+    @overload
+    def __getitem__(self, key: SupportsIndex, /) -> Element: ...
+    @overload
+    def __getitem__(self, key: slice[SupportsIndex | None], /) -> list[Element]: ...
+
     def __len__(self) -> int: ...
-    @overload
-    def __setitem__(self, i: int, o: Element) -> None: ...
-    @overload
-    def __setitem__(self, s: slice, o: Iterable[Element]) -> None: ...
-    if sys.version_info < (3, 9):
-        def getchildren(self) -> List[Element]: ...
-        def getiterator(self, tag: Optional[_str_argument_type] = ...) -> List[Element]: ...
+    # Doesn't actually exist at runtime, but instance of the class are indeed iterable due to __getitem__.
+    def __iter__(self) -> Iterator[Element]: ...
 
-def SubElement(
-    parent: Element,
-    tag: _str_argument_type,
-    attrib: Dict[_str_argument_type, _str_argument_type] = ...,
-    **extra: _str_argument_type,
-) -> Element: ...
-def Comment(text: Optional[_str_argument_type] = ...) -> Element: ...
-def ProcessingInstruction(target: _str_argument_type, text: Optional[_str_argument_type] = ...) -> Element: ...
+    @overload
+    def __setitem__(self, key: SupportsIndex, value: Element[Any], /) -> None: ...
+    @overload
+    def __setitem__(self, key: slice[SupportsIndex | None], value: Iterable[Element[Any]], /) -> None: ...
 
-PI: Callable[..., Element]
+    # Doesn't really exist in earlier versions, where __len__ is called implicitly instead
+    @deprecated("Testing an element's truth value is deprecated.")
+    def __bool__(self) -> bool: ...
+
+def SubElement(parent: Element[Any], tag: str, attrib: dict[str, str] = ..., **extra: str) -> Element: ...
+def Comment(text: str | None = None) -> Element[_ElementCallable]: ...
+def ProcessingInstruction(target: str, text: str | None = None) -> Element[_ElementCallable]: ...
+
+PI = ProcessingInstruction
 
 class QName:
     text: str
-    def __init__(self, text_or_uri: _str_argument_type, tag: Optional[_str_argument_type] = ...) -> None: ...
+    def __init__(self, text_or_uri: str, tag: str | None = None) -> None: ...
+    def __lt__(self, other: QName | str) -> bool: ...
+    def __le__(self, other: QName | str) -> bool: ...
+    def __gt__(self, other: QName | str) -> bool: ...
+    def __ge__(self, other: QName | str) -> bool: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __hash__(self) -> int: ...
 
-class ElementTree:
-    def __init__(self, element: Optional[Element] = ..., file: Optional[_file_or_filename] = ...) -> None: ...
-    def getroot(self) -> Element: ...
-    def parse(self, source: _file_or_filename, parser: Optional[XMLParser] = ...) -> Element: ...
-    def iter(self, tag: Optional[_str_argument_type] = ...) -> Generator[Element, None, None]: ...
-    if sys.version_info < (3, 9):
-        def getiterator(self, tag: Optional[_str_argument_type] = ...) -> List[Element]: ...
-    def find(
-        self, path: _str_argument_type, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> Optional[Element]: ...
+_Root = TypeVar("_Root", Element, Element | None, default=Element | None)
+
+class ElementTree(Generic[_Root]):
+    def __init__(self, element: Element[Any] | None = None, file: _FileRead | None = None) -> None: ...
+    def getroot(self) -> _Root: ...
+    def _setroot(self, element: Element[Any]) -> None: ...
+    def parse(self, source: _FileRead, parser: XMLParser | None = None) -> Element: ...
+    def iter(self, tag: str | None = None) -> Generator[Element]: ...
+    def find(self, path: str, namespaces: dict[str, str] | None = None) -> Element | None: ...
+
     @overload
-    def findtext(
+    def findtext(self, path: str, default: None = None, namespaces: dict[str, str] | None = None) -> str | None: ...
+    @overload
+    def findtext(self, path: str, default: _T, namespaces: dict[str, str] | None = None) -> _T | str: ...
+
+    def findall(self, path: str, namespaces: dict[str, str] | None = None) -> list[Element]: ...
+
+    @overload
+    def iterfind(self, path: Literal[""], namespaces: dict[str, str] | None = None) -> None: ...  # type: ignore[overload-overlap]
+    @overload
+    def iterfind(self, path: str, namespaces: dict[str, str] | None = None) -> Generator[Element]: ...
+
+    def write(
         self,
-        path: _str_argument_type,
-        default: None = ...,
-        namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...,
-    ) -> Optional[_str_result_type]: ...
-    @overload
-    def findtext(
-        self, path: _str_argument_type, default: _T, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> Union[_T, _str_result_type]: ...
-    def findall(
-        self, path: _str_argument_type, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> List[Element]: ...
-    def iterfind(
-        self, path: _str_argument_type, namespaces: Optional[Dict[_str_argument_type, _str_argument_type]] = ...
-    ) -> Generator[Element, None, None]: ...
-    if sys.version_info >= (3, 4):
-        def write(
-            self,
-            file_or_filename: _file_or_filename,
-            encoding: Optional[str] = ...,
-            xml_declaration: Optional[bool] = ...,
-            default_namespace: Optional[_str_argument_type] = ...,
-            method: Optional[str] = ...,
-            *,
-            short_empty_elements: bool = ...,
-        ) -> None: ...
-    else:
-        def write(
-            self,
-            file_or_filename: _file_or_filename,
-            encoding: Optional[str] = ...,
-            xml_declaration: Optional[bool] = ...,
-            default_namespace: Optional[_str_argument_type] = ...,
-            method: Optional[str] = ...,
-        ) -> None: ...
-    def write_c14n(self, file: _file_or_filename) -> None: ...
-
-def register_namespace(prefix: _str_argument_type, uri: _str_argument_type) -> None: ...
-
-if sys.version_info >= (3, 8):
-    @overload
-    def tostring(
-        element: Element,
-        encoding: None = ...,
-        method: Optional[str] = ...,
+        file_or_filename: _FileWrite,
+        encoding: str | None = None,
+        xml_declaration: bool | None = None,
+        default_namespace: str | None = None,
+        method: Literal["xml", "html", "text", "c14n"] | None = None,
         *,
-        xml_declaration: Optional[bool] = ...,
-        default_namespace: Optional[_str_argument_type] = ...,
-        short_empty_elements: bool = ...,
-    ) -> bytes: ...
-    @overload
-    def tostring(
-        element: Element,
-        encoding: Literal["unicode"],
-        method: Optional[str] = ...,
-        *,
-        xml_declaration: Optional[bool] = ...,
-        default_namespace: Optional[_str_argument_type] = ...,
-        short_empty_elements: bool = ...,
-    ) -> str: ...
-    @overload
-    def tostring(
-        element: Element,
-        encoding: str,
-        method: Optional[str] = ...,
-        *,
-        xml_declaration: Optional[bool] = ...,
-        default_namespace: Optional[_str_argument_type] = ...,
-        short_empty_elements: bool = ...,
-    ) -> Any: ...
-    @overload
-    def tostringlist(
-        element: Element,
-        encoding: None = ...,
-        method: Optional[str] = ...,
-        *,
-        xml_declaration: Optional[bool] = ...,
-        default_namespace: Optional[_str_argument_type] = ...,
-        short_empty_elements: bool = ...,
-    ) -> List[bytes]: ...
-    @overload
-    def tostringlist(
-        element: Element,
-        encoding: Literal["unicode"],
-        method: Optional[str] = ...,
-        *,
-        xml_declaration: Optional[bool] = ...,
-        default_namespace: Optional[_str_argument_type] = ...,
-        short_empty_elements: bool = ...,
-    ) -> List[str]: ...
-    @overload
-    def tostringlist(
-        element: Element,
-        encoding: str,
-        method: Optional[str] = ...,
-        *,
-        xml_declaration: Optional[bool] = ...,
-        default_namespace: Optional[_str_argument_type] = ...,
-        short_empty_elements: bool = ...,
-    ) -> List[Any]: ...
+        short_empty_elements: bool = True,
+    ) -> None: ...
+    def write_c14n(self, file: _FileWriteC14N) -> None: ...
 
-elif sys.version_info >= (3,):
-    @overload
-    def tostring(
-        element: Element, encoding: None = ..., method: Optional[str] = ..., *, short_empty_elements: bool = ...
-    ) -> bytes: ...
-    @overload
-    def tostring(
-        element: Element, encoding: Literal["unicode"], method: Optional[str] = ..., *, short_empty_elements: bool = ...
-    ) -> str: ...
-    @overload
-    def tostring(element: Element, encoding: str, method: Optional[str] = ..., *, short_empty_elements: bool = ...) -> Any: ...
-    @overload
-    def tostringlist(
-        element: Element, encoding: None = ..., method: Optional[str] = ..., *, short_empty_elements: bool = ...
-    ) -> List[bytes]: ...
-    @overload
-    def tostringlist(
-        element: Element, encoding: Literal["unicode"], method: Optional[str] = ..., *, short_empty_elements: bool = ...
-    ) -> List[str]: ...
-    @overload
-    def tostringlist(
-        element: Element, encoding: str, method: Optional[str] = ..., *, short_empty_elements: bool = ...
-    ) -> List[Any]: ...
+HTML_EMPTY: Final[set[str]]
 
-else:
-    def tostring(element: Element, encoding: Optional[str] = ..., method: Optional[str] = ...) -> bytes: ...
-    def tostringlist(element: Element, encoding: Optional[str] = ..., method: Optional[str] = ...) -> List[bytes]: ...
+def register_namespace(prefix: str, uri: str) -> None: ...
 
-def dump(elem: Element) -> None: ...
+@overload
+def tostring(
+    element: Element[Any],
+    encoding: None = None,
+    method: Literal["xml", "html", "text", "c14n"] | None = None,
+    *,
+    xml_declaration: bool | None = None,
+    default_namespace: str | None = None,
+    short_empty_elements: bool = True,
+) -> bytes: ...
+@overload
+def tostring(
+    element: Element[Any],
+    encoding: Literal["unicode"],
+    method: Literal["xml", "html", "text", "c14n"] | None = None,
+    *,
+    xml_declaration: bool | None = None,
+    default_namespace: str | None = None,
+    short_empty_elements: bool = True,
+) -> str: ...
+@overload
+def tostring(
+    element: Element[Any],
+    encoding: str,
+    method: Literal["xml", "html", "text", "c14n"] | None = None,
+    *,
+    xml_declaration: bool | None = None,
+    default_namespace: str | None = None,
+    short_empty_elements: bool = True,
+) -> Any: ...
 
-if sys.version_info >= (3, 9):
-    def indent(tree: Union[Element, ElementTree], space: str = ..., level: int = ...) -> None: ...
+@overload
+def tostringlist(
+    element: Element[Any],
+    encoding: None = None,
+    method: Literal["xml", "html", "text", "c14n"] | None = None,
+    *,
+    xml_declaration: bool | None = None,
+    default_namespace: str | None = None,
+    short_empty_elements: bool = True,
+) -> list[bytes]: ...
+@overload
+def tostringlist(
+    element: Element[Any],
+    encoding: Literal["unicode"],
+    method: Literal["xml", "html", "text", "c14n"] | None = None,
+    *,
+    xml_declaration: bool | None = None,
+    default_namespace: str | None = None,
+    short_empty_elements: bool = True,
+) -> list[str]: ...
+@overload
+def tostringlist(
+    element: Element[Any],
+    encoding: str,
+    method: Literal["xml", "html", "text", "c14n"] | None = None,
+    *,
+    xml_declaration: bool | None = None,
+    default_namespace: str | None = None,
+    short_empty_elements: bool = True,
+) -> list[Any]: ...
 
-def parse(source: _file_or_filename, parser: Optional[XMLParser] = ...) -> ElementTree: ...
-def iterparse(
-    source: _file_or_filename, events: Optional[Sequence[str]] = ..., parser: Optional[XMLParser] = ...
-) -> Iterator[Tuple[str, Any]]: ...
+def dump(elem: Element[Any] | ElementTree[Any]) -> None: ...
+def indent(tree: Element[Any] | ElementTree[Any], space: str = "  ", level: int = 0) -> None: ...
+def parse(source: _FileRead, parser: XMLParser[Any] | None = None) -> ElementTree[Element]: ...
 
-if sys.version_info >= (3, 4):
-    class XMLPullParser:
-        def __init__(self, events: Optional[Sequence[str]] = ..., *, _parser: Optional[XMLParser] = ...) -> None: ...
-        def feed(self, data: bytes) -> None: ...
+# The type of the second element of the tuple yielded by iterparse depends
+# on the event type in the first element of the tuple:
+#  * start, end: Element[str]
+#  * comment, pi: Element[_ElementCallable]
+#  * start-ns: tuple[str, str] (prefix, uri)
+#  * end-ns: None
+_EventT_co = TypeVar("_EventT_co", bound=Element[str] | Element[_ElementCallable] | tuple[str, str] | None, covariant=True)
+_EventType: TypeAlias = Literal["start", "end", "comment", "pi", "start-ns", "end-ns"]
+
+# This class is defined inside the body of iterparse.
+@type_check_only
+class _IterParseIterator(Iterator[tuple[_EventType, _EventT_co]], Protocol[_EventT_co]):
+    if sys.version_info >= (3, 13):
         def close(self) -> None: ...
-        def read_events(self) -> Iterator[Tuple[str, Element]]: ...
+    if sys.version_info >= (3, 11):
+        def __del__(self) -> None: ...
 
-def XML(text: _parser_input_type, parser: Optional[XMLParser] = ...) -> Element: ...
-def XMLID(text: _parser_input_type, parser: Optional[XMLParser] = ...) -> Tuple[Element, Dict[_str_result_type, Element]]: ...
+# See the comment for _EventT_co above for possible iterator types.
+@overload
+def iterparse(source: _FileRead, events: Iterable[_EventType]) -> _IterParseIterator[Any]: ...
+@overload
+def iterparse(source: _FileRead, events: None = None) -> _IterParseIterator[Element[str]]: ...
+
+# In case a custom parser is passed, the type of the second element of the tuple
+# yielded by iterparse depends on the parser.
+@overload
+@deprecated("The `parser` parameter is deprecated since Python 3.4.")
+def iterparse(source: _FileRead, events: Iterable[_EventType], parser: XMLParser | None = None) -> _IterParseIterator[Any]: ...
+
+_EventQueue: TypeAlias = tuple[str] | tuple[str, tuple[str, str]] | tuple[str, None]
+
+class XMLPullParser(Generic[_EventT_co]):
+    def __init__(self, events: Iterable[_EventType] | None = None, *, _parser: XMLParser[_EventT_co] | None = None) -> None: ...
+    def feed(self, data: str | ReadableBuffer) -> None: ...
+    def close(self) -> None: ...
+    def read_events(self) -> Iterator[_EventQueue | tuple[_EventType, _EventT_co]]: ...
+    def flush(self) -> None: ...
+
+def XML(text: str | ReadableBuffer, parser: XMLParser | None = None) -> Element: ...
+def XMLID(text: str | ReadableBuffer, parser: XMLParser | None = None) -> tuple[Element, dict[str, Element]]: ...
 
 # This is aliased to XML in the source.
 fromstring = XML
 
-def fromstringlist(sequence: Sequence[_parser_input_type], parser: Optional[XMLParser] = ...) -> Element: ...
+def fromstringlist(sequence: Sequence[str | ReadableBuffer], parser: XMLParser | None = None) -> Element: ...
 
 # This type is both not precise enough and too precise. The TreeBuilder
 # requires the elementfactory to accept tag and attrs in its args and produce
@@ -341,40 +321,82 @@ def fromstringlist(sequence: Sequence[_parser_input_type], parser: Optional[XMLP
 # TreeBuilder is called by client code (they could pass strs, bytes or whatever);
 # but we don't want to use a too-broad type, or it would be too hard to write
 # elementfactories.
-_ElementFactory = Callable[[Any, Dict[Any, Any]], Element]
+_ElementFactory: TypeAlias = Callable[[Any, dict[Any, Any]], Element]
 
+@disjoint_base
 class TreeBuilder:
-    def __init__(self, element_factory: Optional[_ElementFactory] = ...) -> None: ...
+    # comment_factory can take None because passing None to Comment is not an error
+    def __init__(
+        self,
+        element_factory: _ElementFactory | None = None,
+        *,
+        comment_factory: Callable[[str | None], Element[Any]] | None = None,
+        pi_factory: Callable[[str, str | None], Element[Any]] | None = None,
+        insert_comments: bool = False,
+        insert_pis: bool = False,
+    ) -> None: ...
+    insert_comments: bool
+    insert_pis: bool
+
     def close(self) -> Element: ...
-    def data(self, __data: _parser_input_type) -> None: ...
-    def start(self, __tag: _parser_input_type, __attrs: Dict[_parser_input_type, _parser_input_type]) -> Element: ...
-    def end(self, __tag: _parser_input_type) -> Element: ...
+    def data(self, data: str, /) -> None: ...
+    # tag and attrs are passed to the element_factory, so they could be anything
+    # depending on what the particular factory supports.
+    def start(self, tag: Any, attrs: dict[Any, Any], /) -> Element: ...
+    def end(self, tag: str, /) -> Element: ...
+    # These two methods have pos-only parameters in the C implementation
+    def comment(self, text: str | None, /) -> Element[Any]: ...
+    def pi(self, target: str, text: str | None = None, /) -> Element[Any]: ...
 
-if sys.version_info >= (3, 8):
-    class C14NWriterTarget:
-        def __init__(
-            self,
-            write: Callable[[str], Any],
-            *,
-            with_comments: bool = ...,
-            strip_text: bool = ...,
-            rewrite_prefixes: bool = ...,
-            qname_aware_tags: Optional[Iterable[str]] = ...,
-            qname_aware_attrs: Optional[Iterable[str]] = ...,
-            exclude_attrs: Optional[Iterable[str]] = ...,
-            exclude_tags: Optional[Iterable[str]] = ...,
-        ) -> None: ...
+class C14NWriterTarget:
+    def __init__(
+        self,
+        write: Callable[[str], object],
+        *,
+        with_comments: bool = False,
+        strip_text: bool = False,
+        rewrite_prefixes: bool = False,
+        qname_aware_tags: Iterable[str] | None = None,
+        qname_aware_attrs: Iterable[str] | None = None,
+        exclude_attrs: Iterable[str] | None = None,
+        exclude_tags: Iterable[str] | None = None,
+    ) -> None: ...
+    def data(self, data: str) -> None: ...
+    def start_ns(self, prefix: str, uri: str) -> None: ...
+    def start(self, tag: str, attrs: Mapping[str, str]) -> None: ...
+    def end(self, tag: str) -> None: ...
+    def comment(self, text: str) -> None: ...
+    def pi(self, target: str, data: str) -> None: ...
 
-class XMLParser:
-    parser: Any
-    target: Any
-    # TODO-what is entity used for???
-    entity: Any
+# The target type is tricky, because the implementation doesn't
+# require any particular attribute to be present. This documents the attributes
+# that can be present, but uncommenting any of them would require them.
+@type_check_only
+class _Target(Protocol):
+    # start: Callable[str, dict[str, str], Any] | None
+    # end: Callable[[str], Any] | None
+    # start_ns: Callable[[str, str], Any] | None
+    # end_ns: Callable[[str], Any] | None
+    # data: Callable[[str], Any] | None
+    # comment: Callable[[str], Any]
+    # pi: Callable[[str, str], Any] | None
+    # close: Callable[[], Any] | None
+    ...
+
+_E = TypeVar("_E", default=Element)
+
+# This is generic because the return type of close() depends on the target.
+# The default target is TreeBuilder, which returns Element.
+# C14NWriterTarget does not implement a close method, so using it results
+# in a type of XMLParser[None].
+@disjoint_base
+class XMLParser(Generic[_E]):
+    parser: XMLParserType
+    target: _Target
+    # TODO: what is entity used for???
+    entity: dict[str, str]
     version: str
-    if sys.version_info >= (3, 8):
-        def __init__(self, *, target: Any = ..., encoding: Optional[str] = ...) -> None: ...
-    else:
-        def __init__(self, html: int = ..., target: Any = ..., encoding: Optional[str] = ...) -> None: ...
-        def doctype(self, __name: str, __pubid: str, __system: str) -> None: ...
-    def close(self) -> Any: ...
-    def feed(self, __data: _parser_input_type) -> None: ...
+    def __init__(self, *, target: _Target | None = None, encoding: str | None = None) -> None: ...
+    def close(self) -> _E: ...
+    def feed(self, data: str | ReadableBuffer, /) -> None: ...
+    def flush(self) -> None: ...

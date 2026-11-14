@@ -1,20 +1,41 @@
+import sys
+from _socket import _Address as _SourceAddress
+from _typeshed import ReadableBuffer, SizedBuffer, StrOrBytesPath
+from collections.abc import Sequence
 from email.message import Message as _Message
+from re import Pattern
 from socket import socket
 from ssl import SSLContext
 from types import TracebackType
-from typing import Any, Dict, List, Optional, Pattern, Protocol, Sequence, Tuple, Type, Union, overload
+from typing import Any, Final, Protocol, TypeAlias, overload, type_check_only
+from typing_extensions import Self, deprecated
 
-_Reply = Tuple[int, bytes]
-_SendErrs = Dict[str, _Reply]
-# Should match source_address for socket.create_connection
-_SourceAddress = Tuple[Union[bytearray, bytes, str], int]
+__all__ = [
+    "SMTPException",
+    "SMTPServerDisconnected",
+    "SMTPResponseException",
+    "SMTPSenderRefused",
+    "SMTPRecipientsRefused",
+    "SMTPDataError",
+    "SMTPConnectError",
+    "SMTPHeloError",
+    "SMTPAuthenticationError",
+    "quoteaddr",
+    "quotedata",
+    "SMTP",
+    "SMTP_SSL",
+    "SMTPNotSupportedError",
+]
 
-SMTP_PORT: int
-SMTP_SSL_PORT: int
-CRLF: str
-bCRLF: bytes
+_Reply: TypeAlias = tuple[int, bytes]
+_SendErrs: TypeAlias = dict[str, _Reply]
 
-OLDSTYLE_AUTH: Pattern[str]
+SMTP_PORT: Final = 25
+SMTP_SSL_PORT: Final = 465
+CRLF: Final[str]
+bCRLF: Final[bytes]
+
+OLDSTYLE_AUTH: Final[Pattern[str]]
 
 class SMTPException(OSError): ...
 class SMTPNotSupportedError(SMTPException): ...
@@ -22,20 +43,19 @@ class SMTPServerDisconnected(SMTPException): ...
 
 class SMTPResponseException(SMTPException):
     smtp_code: int
-    smtp_error: Union[bytes, str]
-    args: Union[Tuple[int, Union[bytes, str]], Tuple[int, bytes, str]]
-    def __init__(self, code: int, msg: Union[bytes, str]) -> None: ...
+    smtp_error: bytes | str
+    args: tuple[int, bytes | str] | tuple[int, bytes, str]
+    def __init__(self, code: int, msg: bytes | str) -> None: ...
 
 class SMTPSenderRefused(SMTPResponseException):
-    smtp_code: int
     smtp_error: bytes
     sender: str
-    args: Tuple[int, bytes, str]
+    args: tuple[int, bytes, str]
     def __init__(self, code: int, msg: bytes, sender: str) -> None: ...
 
 class SMTPRecipientsRefused(SMTPException):
     recipients: _SendErrs
-    args: Tuple[_SendErrs]
+    args: tuple[_SendErrs]
     def __init__(self, recipients: _SendErrs) -> None: ...
 
 class SMTPDataError(SMTPResponseException): ...
@@ -46,114 +66,158 @@ class SMTPAuthenticationError(SMTPResponseException): ...
 def quoteaddr(addrstring: str) -> str: ...
 def quotedata(data: str) -> str: ...
 
+@type_check_only
 class _AuthObject(Protocol):
     @overload
-    def __call__(self, challenge: None = ...) -> Optional[str]: ...
+    def __call__(self, challenge: None = None, /) -> str | None: ...
     @overload
-    def __call__(self, challenge: bytes) -> str: ...
+    def __call__(self, challenge: bytes, /) -> str: ...
 
 class SMTP:
-    debuglevel: int = ...
-    sock: Optional[socket] = ...
+    debuglevel: int
+    sock: socket | None
     # Type of file should match what socket.makefile() returns
-    file: Optional[Any] = ...
-    helo_resp: Optional[bytes] = ...
-    ehlo_msg: str = ...
-    ehlo_resp: Optional[bytes] = ...
-    does_esmtp: bool = ...
-    default_port: int = ...
+    file: Any | None
+    helo_resp: bytes | None
+    ehlo_msg: str
+    ehlo_resp: bytes | None
+    does_esmtp: bool
+    default_port: int
     timeout: float
-    esmtp_features: Dict[str, str]
+    esmtp_features: dict[str, str]
     command_encoding: str
-    source_address: Optional[_SourceAddress]
+    source_address: _SourceAddress | None
     local_hostname: str
     def __init__(
         self,
-        host: str = ...,
-        port: int = ...,
-        local_hostname: Optional[str] = ...,
+        host: str = "",
+        port: int = 0,
+        local_hostname: str | None = None,
         timeout: float = ...,
-        source_address: Optional[_SourceAddress] = ...,
+        source_address: _SourceAddress | None = None,
     ) -> None: ...
-    def __enter__(self) -> SMTP: ...
+    def __enter__(self) -> Self: ...
     def __exit__(
-        self, exc_type: Optional[Type[BaseException]], exc_value: Optional[BaseException], tb: Optional[TracebackType]
+        self, exc_type: type[BaseException] | None, exc_value: BaseException | None, tb: TracebackType | None
     ) -> None: ...
     def set_debuglevel(self, debuglevel: int) -> None: ...
-    def connect(self, host: str = ..., port: int = ..., source_address: Optional[_SourceAddress] = ...) -> _Reply: ...
-    def send(self, s: Union[bytes, str]) -> None: ...
-    def putcmd(self, cmd: str, args: str = ...) -> None: ...
+    def connect(self, host: str = "localhost", port: int = 0, source_address: _SourceAddress | None = None) -> _Reply: ...
+    def send(self, s: ReadableBuffer | str) -> None: ...
+    def putcmd(self, cmd: str, args: str = "") -> None: ...
     def getreply(self) -> _Reply: ...
-    def docmd(self, cmd: str, args: str = ...) -> _Reply: ...
-    def helo(self, name: str = ...) -> _Reply: ...
-    def ehlo(self, name: str = ...) -> _Reply: ...
+    def docmd(self, cmd: str, args: str = "") -> _Reply: ...
+    def helo(self, name: str = "") -> _Reply: ...
+    def ehlo(self, name: str = "") -> _Reply: ...
     def has_extn(self, opt: str) -> bool: ...
-    def help(self, args: str = ...) -> bytes: ...
+    def help(self, args: str = "") -> bytes: ...
     def rset(self) -> _Reply: ...
     def noop(self) -> _Reply: ...
-    def mail(self, sender: str, options: Sequence[str] = ...) -> _Reply: ...
-    def rcpt(self, recip: str, options: Sequence[str] = ...) -> _Reply: ...
-    def data(self, msg: Union[bytes, str]) -> _Reply: ...
+    def mail(self, sender: str, options: Sequence[str] = ()) -> _Reply: ...
+    def rcpt(self, recip: str, options: Sequence[str] = ()) -> _Reply: ...
+    def data(self, msg: ReadableBuffer | str) -> _Reply: ...
     def verify(self, address: str) -> _Reply: ...
     vrfy = verify
     def expn(self, address: str) -> _Reply: ...
     def ehlo_or_helo_if_needed(self) -> None: ...
     user: str
     password: str
-    def auth(self, mechanism: str, authobject: _AuthObject, *, initial_response_ok: bool = ...) -> _Reply: ...
+    def auth(self, mechanism: str, authobject: _AuthObject, *, initial_response_ok: bool = True) -> _Reply: ...
+
     @overload
-    def auth_cram_md5(self, challenge: None = ...) -> None: ...
+    def auth_cram_md5(self, challenge: None = None) -> None: ...
     @overload
-    def auth_cram_md5(self, challenge: bytes) -> str: ...
-    def auth_plain(self, challenge: Optional[bytes] = ...) -> str: ...
-    def auth_login(self, challenge: Optional[bytes] = ...) -> str: ...
-    def login(self, user: str, password: str, *, initial_response_ok: bool = ...) -> _Reply: ...
-    def starttls(
-        self, keyfile: Optional[str] = ..., certfile: Optional[str] = ..., context: Optional[SSLContext] = ...
-    ) -> _Reply: ...
+    def auth_cram_md5(self, challenge: ReadableBuffer) -> str: ...
+
+    def auth_plain(self, challenge: ReadableBuffer | None = None) -> str: ...
+    def auth_login(self, challenge: ReadableBuffer | None = None) -> str: ...
+    def login(self, user: str, password: str, *, initial_response_ok: bool = True) -> _Reply: ...
+    if sys.version_info >= (3, 12):
+        def starttls(self, *, context: SSLContext | None = None) -> _Reply: ...
+    else:
+        @overload
+        def starttls(self, keyfile: None = None, certfile: None = None, context: SSLContext | None = None) -> _Reply: ...
+        @overload
+        @deprecated(
+            "The `keyfile`, `certfile` parameters are deprecated since Python 3.6; "
+            "removed in Python 3.12. Use `context` parameter instead."
+        )
+        def starttls(
+            self, keyfile: StrOrBytesPath | None = None, certfile: StrOrBytesPath | None = None, context: None = None
+        ) -> _Reply: ...
+
     def sendmail(
         self,
         from_addr: str,
-        to_addrs: Union[str, Sequence[str]],
-        msg: Union[bytes, str],
-        mail_options: Sequence[str] = ...,
-        rcpt_options: List[str] = ...,
+        to_addrs: str | Sequence[str],
+        msg: SizedBuffer | str,
+        mail_options: Sequence[str] = (),
+        rcpt_options: Sequence[str] = (),
     ) -> _SendErrs: ...
     def send_message(
         self,
         msg: _Message,
-        from_addr: Optional[str] = ...,
-        to_addrs: Optional[Union[str, Sequence[str]]] = ...,
-        mail_options: Sequence[str] = ...,
-        rcpt_options: Sequence[str] = ...,
+        from_addr: str | None = None,
+        to_addrs: str | Sequence[str] | None = None,
+        mail_options: Sequence[str] = (),
+        rcpt_options: Sequence[str] = (),
     ) -> _SendErrs: ...
     def close(self) -> None: ...
     def quit(self) -> _Reply: ...
 
 class SMTP_SSL(SMTP):
-    default_port: int = ...
-    keyfile: Optional[str]
-    certfile: Optional[str]
     context: SSLContext
-    def __init__(
-        self,
-        host: str = ...,
-        port: int = ...,
-        local_hostname: Optional[str] = ...,
-        keyfile: Optional[str] = ...,
-        certfile: Optional[str] = ...,
-        timeout: float = ...,
-        source_address: Optional[_SourceAddress] = ...,
-        context: Optional[SSLContext] = ...,
-    ) -> None: ...
+    if sys.version_info >= (3, 12):
+        def __init__(
+            self,
+            host: str = "",
+            port: int = 0,
+            local_hostname: str | None = None,
+            *,
+            timeout: float = ...,
+            source_address: _SourceAddress | None = None,
+            context: SSLContext | None = None,
+        ) -> None: ...
+    else:
+        @overload
+        def __init__(
+            self,
+            host: str = "",
+            port: int = 0,
+            local_hostname: str | None = None,
+            keyfile: None = None,
+            certfile: None = None,
+            timeout: float = ...,
+            source_address: _SourceAddress | None = None,
+            context: SSLContext | None = None,
+        ) -> None: ...
+        @overload
+        @deprecated(
+            "The `keyfile`, `certfile` parameters are deprecated since Python 3.6; "
+            "removed in Python 3.12. Use `context` parameter instead."
+        )
+        def __init__(
+            self,
+            host: str = "",
+            port: int = 0,
+            local_hostname: str | None = None,
+            keyfile: StrOrBytesPath | None = None,
+            certfile: StrOrBytesPath | None = None,
+            timeout: float = ...,
+            source_address: _SourceAddress | None = None,
+            context: None = None,
+        ) -> None: ...
 
-LMTP_PORT: int
+        keyfile: StrOrBytesPath | None
+        certfile: StrOrBytesPath | None
+
+LMTP_PORT: Final = 2003
 
 class LMTP(SMTP):
     def __init__(
         self,
-        host: str = ...,
-        port: int = ...,
-        local_hostname: Optional[str] = ...,
-        source_address: Optional[_SourceAddress] = ...,
+        host: str = "",
+        port: int = 2003,
+        local_hostname: str | None = None,
+        source_address: _SourceAddress | None = None,
+        timeout: float = ...,
     ) -> None: ...

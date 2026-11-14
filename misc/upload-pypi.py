@@ -5,6 +5,8 @@ You must first tag the release, use `git push --tags` and wait for the wheel bui
 
 """
 
+from __future__ import annotations
+
 import argparse
 import contextlib
 import json
@@ -14,9 +16,10 @@ import subprocess
 import tarfile
 import tempfile
 import venv
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any
 from urllib.request import urlopen
 
 BASE = "https://api.github.com/repos"
@@ -24,18 +27,24 @@ REPO = "mypyc/mypy_mypyc-wheels"
 
 
 def is_whl_or_tar(name: str) -> bool:
-    return name.endswith(".tar.gz") or name.endswith(".whl")
+    return name.endswith((".tar.gz", ".whl"))
 
 
-def get_release_for_tag(tag: str) -> Dict[str, Any]:
+def item_ok_for_pypi(name: str) -> bool:
+    return is_whl_or_tar(name)
+
+
+def get_release_for_tag(tag: str) -> dict[str, Any]:
     with urlopen(f"{BASE}/{REPO}/releases/tags/{tag}") as f:
         data = json.load(f)
+    assert isinstance(data, dict)
     assert data["tag_name"] == tag
     return data
 
 
-def download_asset(asset: Dict[str, Any], dst: Path) -> Path:
+def download_asset(asset: dict[str, Any], dst: Path) -> Path:
     name = asset["name"]
+    assert isinstance(name, str)
     download_url = asset["browser_download_url"]
     assert is_whl_or_tar(name)
     with urlopen(download_url) as src_file:
@@ -44,8 +53,8 @@ def download_asset(asset: Dict[str, Any], dst: Path) -> Path:
     return dst / name
 
 
-def download_all_release_assets(release: Dict[str, Any], dst: Path) -> None:
-    print(f"Downloading assets...")
+def download_all_release_assets(release: dict[str, Any], dst: Path) -> None:
+    print("Downloading assets...")
     with ThreadPoolExecutor() as e:
         for asset in e.map(lambda asset: download_asset(asset, dst), release["assets"]):
             print(f"Downloaded {asset}")
@@ -66,12 +75,12 @@ def check_sdist(dist: Path, version: str) -> None:
         hashless_version = match.group(1) if match else version
 
         assert (
-            f"'{hashless_version}'" in version_py_contents
+            f'"{hashless_version}"' in version_py_contents
         ), "Version does not match version.py in sdist"
 
 
 def spot_check_dist(dist: Path, version: str) -> None:
-    items = [item for item in dist.iterdir() if is_whl_or_tar(item.name)]
+    items = [item for item in dist.iterdir() if item_ok_for_pypi(item.name)]
     assert len(items) > 10
     assert all(version in item.name for item in items)
     assert any(item.name.endswith("py3-none-any.whl") for item in items)
@@ -89,8 +98,8 @@ def tmp_twine() -> Iterator[Path]:
 
 def upload_dist(dist: Path, dry_run: bool = True) -> None:
     with tmp_twine() as twine:
-        files = [item for item in dist.iterdir() if is_whl_or_tar(item.name)]
-        cmd: List[Any] = [twine, "upload"]
+        files = [item for item in dist.iterdir() if item_ok_for_pypi(item.name)]
+        cmd: list[Any] = [twine, "upload", "--skip-existing"]
         cmd += files
         if dry_run:
             print("[dry run] " + " ".join(map(str, cmd)))
@@ -100,11 +109,10 @@ def upload_dist(dist: Path, dry_run: bool = True) -> None:
 
 
 def upload_to_pypi(version: str, dry_run: bool = True) -> None:
-    assert re.match(r"v?0\.[0-9]{3}(\+\S+)?$", version)
+    assert re.match(r"v?[1-9]\.[0-9]+\.[0-9](\+\S+)?$", version)
     if "dev" in version:
         assert dry_run, "Must use --dry-run with dev versions of mypy"
-    if version.startswith("v"):
-        version = version[1:]
+    version = version.removeprefix("v")
 
     target_dir = tempfile.mkdtemp()
     dist = Path(target_dir) / "dist"

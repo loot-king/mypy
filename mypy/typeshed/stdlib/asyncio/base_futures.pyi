@@ -1,22 +1,17 @@
-import sys
-from typing import Any, Callable, List, Sequence, Tuple
-from typing_extensions import Literal
-
-if sys.version_info >= (3, 7):
-    from contextvars import Context
+from _asyncio import Future
+from collections.abc import Callable, Sequence
+from contextvars import Context
+from typing import Any, Final
+from typing_extensions import TypeIs
 
 from . import futures
 
-_PENDING: Literal["PENDING"]  # undocumented
-_CANCELLED: Literal["CANCELLED"]  # undocumented
-_FINISHED: Literal["FINISHED"]  # undocumented
+__all__ = ()
 
-def isfuture(obj: object) -> bool: ...
+_PENDING: Final = "PENDING"  # undocumented
+_CANCELLED: Final = "CANCELLED"  # undocumented
+_FINISHED: Final = "FINISHED"  # undocumented
 
-if sys.version_info >= (3, 7):
-    def _format_callbacks(cb: Sequence[Tuple[Callable[[futures.Future[Any]], None], Context]]) -> str: ...  # undocumented
-
-else:
-    def _format_callbacks(cb: Sequence[Callable[[futures.Future[Any]], None]]) -> str: ...  # undocumented
-
-def _future_repr_info(future: futures.Future[Any]) -> List[str]: ...  # undocumented
+def isfuture(obj: object) -> TypeIs[Future[Any]]: ...
+def _format_callbacks(cb: Sequence[tuple[Callable[[futures.Future[Any]], None], Context]]) -> str: ...  # undocumented
+def _future_repr_info(future: futures.Future[Any]) -> list[str]: ...  # undocumented

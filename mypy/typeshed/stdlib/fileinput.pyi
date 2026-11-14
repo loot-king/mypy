@@ -1,26 +1,69 @@
 import sys
-from _typeshed import AnyPath
-from typing import IO, Any, AnyStr, Callable, Generic, Iterable, Iterator, Optional, Union
+from _typeshed import AnyStr_co, StrOrBytesPath
+from collections.abc import Callable, Iterable, Iterator
+from types import GenericAlias, TracebackType
+from typing import IO, Any, AnyStr, Literal, Protocol, TypeAlias, overload, type_check_only
+from typing_extensions import Self, deprecated
 
-if sys.version_info >= (3, 8):
-    def input(
-        files: Union[AnyPath, Iterable[AnyPath], None] = ...,
-        inplace: bool = ...,
-        backup: str = ...,
-        *,
-        mode: str = ...,
-        openhook: Callable[[AnyPath, str], IO[AnyStr]] = ...,
-    ) -> FileInput[AnyStr]: ...
+__all__ = [
+    "input",
+    "close",
+    "nextfile",
+    "filename",
+    "lineno",
+    "filelineno",
+    "fileno",
+    "isfirstline",
+    "isstdin",
+    "FileInput",
+    "hook_compressed",
+    "hook_encoded",
+]
 
+if sys.version_info >= (3, 11):
+    _TextMode: TypeAlias = Literal["r"]
 else:
-    def input(
-        files: Union[AnyPath, Iterable[AnyPath], None] = ...,
-        inplace: bool = ...,
-        backup: str = ...,
-        bufsize: int = ...,
-        mode: str = ...,
-        openhook: Callable[[AnyPath, str], IO[AnyStr]] = ...,
-    ) -> FileInput[AnyStr]: ...
+    _TextMode: TypeAlias = Literal["r", "rU", "U"]
+
+@type_check_only
+class _HasReadlineAndFileno(Protocol[AnyStr_co]):
+    def readline(self) -> AnyStr_co: ...
+    def fileno(self) -> int: ...
+
+# encoding and errors are added
+@overload
+def input(
+    files: StrOrBytesPath | Iterable[StrOrBytesPath] | None = None,
+    inplace: bool = False,
+    backup: str = "",
+    *,
+    mode: _TextMode = "r",
+    openhook: Callable[[StrOrBytesPath, str], _HasReadlineAndFileno[str]] | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
+) -> FileInput[str]: ...
+@overload
+def input(
+    files: StrOrBytesPath | Iterable[StrOrBytesPath] | None = None,
+    inplace: bool = False,
+    backup: str = "",
+    *,
+    mode: Literal["rb"],
+    openhook: Callable[[StrOrBytesPath, str], _HasReadlineAndFileno[bytes]] | None = None,
+    encoding: None = None,
+    errors: None = None,
+) -> FileInput[bytes]: ...
+@overload
+def input(
+    files: StrOrBytesPath | Iterable[StrOrBytesPath] | None = None,
+    inplace: bool = False,
+    backup: str = "",
+    *,
+    mode: str,
+    openhook: Callable[[StrOrBytesPath, str], _HasReadlineAndFileno[Any]] | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
+) -> FileInput[Any]: ...
 
 def close() -> None: ...
 def nextfile() -> None: ...
@@ -31,35 +74,56 @@ def fileno() -> int: ...
 def isfirstline() -> bool: ...
 def isstdin() -> bool: ...
 
-class FileInput(Iterable[AnyStr], Generic[AnyStr]):
-    if sys.version_info >= (3, 8):
-        def __init__(
-            self,
-            files: Union[None, AnyPath, Iterable[AnyPath]] = ...,
-            inplace: bool = ...,
-            backup: str = ...,
-            *,
-            mode: str = ...,
-            openhook: Callable[[AnyPath, str], IO[AnyStr]] = ...,
-        ) -> None: ...
-    else:
-        def __init__(
-            self,
-            files: Union[None, AnyPath, Iterable[AnyPath]] = ...,
-            inplace: bool = ...,
-            backup: str = ...,
-            bufsize: int = ...,
-            mode: str = ...,
-            openhook: Callable[[AnyPath, str], IO[AnyStr]] = ...,
-        ) -> None: ...
+class FileInput(Iterator[AnyStr]):
+    # encoding and errors are added
+    @overload
+    def __init__(
+        self: FileInput[str],
+        files: StrOrBytesPath | Iterable[StrOrBytesPath] | None = None,
+        inplace: bool = False,
+        backup: str = "",
+        *,
+        mode: _TextMode = "r",
+        openhook: Callable[[StrOrBytesPath, str], _HasReadlineAndFileno[str]] | None = None,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> None: ...
+    @overload
+    def __init__(
+        self: FileInput[bytes],
+        files: StrOrBytesPath | Iterable[StrOrBytesPath] | None = None,
+        inplace: bool = False,
+        backup: str = "",
+        *,
+        mode: Literal["rb"],
+        openhook: Callable[[StrOrBytesPath, str], _HasReadlineAndFileno[bytes]] | None = None,
+        encoding: None = None,
+        errors: None = None,
+    ) -> None: ...
+    @overload
+    def __init__(
+        self: FileInput[Any],
+        files: StrOrBytesPath | Iterable[StrOrBytesPath] | None = None,
+        inplace: bool = False,
+        backup: str = "",
+        *,
+        mode: str,
+        openhook: Callable[[StrOrBytesPath, str], _HasReadlineAndFileno[Any]] | None = None,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> None: ...
+
     def __del__(self) -> None: ...
     def close(self) -> None: ...
-    if sys.version_info >= (3, 2):
-        def __enter__(self) -> FileInput[AnyStr]: ...
-        def __exit__(self, type: Any, value: Any, traceback: Any) -> None: ...
-    def __iter__(self) -> Iterator[AnyStr]: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(
+        self, type: type[BaseException] | None, value: BaseException | None, traceback: TracebackType | None
+    ) -> None: ...
+    def __iter__(self) -> Self: ...
     def __next__(self) -> AnyStr: ...
-    def __getitem__(self, i: int) -> AnyStr: ...
+    if sys.version_info < (3, 11):
+        def __getitem__(self, i: int) -> AnyStr: ...
+
     def nextfile(self) -> None: ...
     def readline(self) -> AnyStr: ...
     def filename(self) -> str: ...
@@ -68,11 +132,10 @@ class FileInput(Iterable[AnyStr], Generic[AnyStr]):
     def fileno(self) -> int: ...
     def isfirstline(self) -> bool: ...
     def isstdin(self) -> bool: ...
+    def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
-def hook_compressed(filename: AnyPath, mode: str) -> IO[Any]: ...
-
-if sys.version_info >= (3, 6):
-    def hook_encoded(encoding: str, errors: Optional[str] = ...) -> Callable[[AnyPath, str], IO[Any]]: ...
-
-else:
-    def hook_encoded(encoding: str) -> Callable[[AnyPath, str], IO[Any]]: ...
+def hook_compressed(
+    filename: StrOrBytesPath, mode: str, *, encoding: str | None = None, errors: str | None = None
+) -> IO[Any]: ...
+@deprecated("Deprecated since Python 3.10. Use `fileinput.input` or `fileinput.FileInput` instead.")
+def hook_encoded(encoding: str, errors: str | None = None) -> Callable[[StrOrBytesPath, str], IO[Any]]: ...

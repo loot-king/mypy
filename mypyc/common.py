@@ -1,76 +1,158 @@
+from __future__ import annotations
+
+import importlib.machinery
 import sys
-from typing import Dict, Any, Tuple
-import sys
+import sysconfig
+from typing import Any, Final
 
-from typing_extensions import Final
+from mypy.util import unnamed_function
+from mypyc.namegen import exported_name
 
-PREFIX = 'CPyPy_'  # type: Final # Python wrappers
-NATIVE_PREFIX = 'CPyDef_'  # type: Final # Native functions etc.
-DUNDER_PREFIX = 'CPyDunder_'  # type: Final # Wrappers for exposing dunder methods to the API
-REG_PREFIX = 'cpy_r_'  # type: Final # Registers
-STATIC_PREFIX = 'CPyStatic_'  # type: Final # Static variables (for literals etc.)
-TYPE_PREFIX = 'CPyType_'  # type: Final # Type object struct
-MODULE_PREFIX = 'CPyModule_'  # type: Final # Cached modules
-ATTR_PREFIX = '_'  # type: Final # Attributes
+PREFIX: Final = "CPyPy_"  # Python wrappers
+NATIVE_PREFIX: Final = "CPyDef_"  # Native functions etc.
+DUNDER_PREFIX: Final = "CPyDunder_"  # Wrappers for exposing dunder methods to the API
+REG_PREFIX: Final = "cpy_r_"  # Registers
+STATIC_PREFIX: Final = "CPyStatic_"  # Static variables (for literals etc.)
+TYPE_PREFIX: Final = "CPyType_"  # Type object struct
+MODULE_PREFIX: Final = "CPyModule_"  # Cached modules
+IMPORT_STATE_PREFIX: Final = "CPyImportState_"  # Native module initialization state
+MODULE_LOCK_API_PREFIX: Final = "CPyModuleLockAPI_"  # CPython module-lock API cache
+TYPE_VAR_PREFIX: Final = "CPyTypeVar_"  # Type variables when using new-style Python 3.12 syntax
+ATTR_PREFIX: Final = "_"  # Attributes
+FAST_PREFIX: Final = "__mypyc_fast_"  # Optimized methods in non-extension classes
 
-ENV_ATTR_NAME = '__mypyc_env__'  # type: Final
-NEXT_LABEL_ATTR_NAME = '__mypyc_next_label__'  # type: Final
-TEMP_ATTR_NAME = '__mypyc_temp__'  # type: Final
-LAMBDA_NAME = '__mypyc_lambda__'  # type: Final
-PROPSET_PREFIX = '__mypyc_setter__'  # type: Final
-SELF_NAME = '__mypyc_self__'  # type: Final
+ENV_ATTR_NAME: Final = "__mypyc_env__"
+NEXT_LABEL_ATTR_NAME: Final = "__mypyc_next_label__"
+GENERATOR_HELPER_NAME: Final = "__mypyc_generator_helper__"
+TEMP_ATTR_NAME: Final = "__mypyc_temp__"
+LAMBDA_NAME: Final = "__mypyc_lambda__"
+PROPSET_PREFIX: Final = "__mypyc_setter__"
+# Key in ClassIR.methods for the undecorated version of a decorated method override
+UNDECORATED_PREFIX: Final = "__mypyc_undecorated__"
+SELF_NAME: Final = "__mypyc_self__"
+MYPYC_DEFAULTS_SETUP: Final = "__mypyc_defaults_setup"
+GENERATOR_ATTRIBUTE_PREFIX: Final = "__mypyc_generator_attribute__"
+GENERATOR_FRAME_ATTRIBUTE_PREFIX: Final = "__mypyc_generator_frame_attribute__"
+CPYFUNCTION_NAME = "__cpyfunction__"
+
+
+def module_import_state_name(module_name: str) -> str:
+    return f"{IMPORT_STATE_PREFIX}{exported_name(module_name)}"
+
+
+def module_lock_api_name(group_name: str) -> str:
+    return f"{MODULE_LOCK_API_PREFIX}{exported_name(group_name)}"
+
+
+def module_init_only_name(module_name: str) -> str:
+    return f"CPyInitOnly_{exported_name(module_name)}"
+
+
+def module_init_name(module_name: str) -> str:
+    return f"CPyInit_{exported_name(module_name)}"
+
+
+def module_exec_name(module_name: str) -> str:
+    return f"CPyExec_{exported_name(module_name)}"
+
+
+def generator_frame_attribute_prefix(class_fullname: str, *, is_final_class: bool) -> str:
+    """Return the source-attribute prefix private to a generator frame class."""
+    if is_final_class:
+        return GENERATOR_FRAME_ATTRIBUTE_PREFIX
+    return f"{GENERATOR_FRAME_ATTRIBUTE_PREFIX}{exported_name(class_fullname)}_"
+
+
+def source_name_from_generator_attribute(name: str, class_fullname: str) -> str:
+    """Recover a source name from a generator frame or closure attribute."""
+    qualified_prefix = generator_frame_attribute_prefix(class_fullname, is_final_class=False)
+    if name.startswith(qualified_prefix):
+        return name.removeprefix(qualified_prefix)
+    if name.startswith(GENERATOR_FRAME_ATTRIBUTE_PREFIX):
+        return name.removeprefix(GENERATOR_FRAME_ATTRIBUTE_PREFIX)
+    return name.removeprefix(GENERATOR_ATTRIBUTE_PREFIX)
+
+
+# Omits the prefix added to user attribute fields, so it cannot collide with one.
+RUNNING_FIELD: Final = "mypyc_running"
 
 # Max short int we accept as a literal is based on 32-bit platforms,
 # so that we can just always emit the same code.
 
-TOP_LEVEL_NAME = '__top_level__'  # type: Final # Special function representing module top level
+TOP_LEVEL_NAME: Final = "__top_level__"  # Special function representing module top level
 
 # Maximal number of subclasses for a class to trigger fast path in isinstance() checks.
-FAST_ISINSTANCE_MAX_SUBCLASSES = 2  # type: Final
+FAST_ISINSTANCE_MAX_SUBCLASSES: Final = 2
 
-IS_32_BIT_PLATFORM = sys.maxsize < (1 << 31)  # type: Final
+# Size of size_t, if configured.
+SIZEOF_SIZE_T_SYSCONFIG: Final = sysconfig.get_config_var("SIZEOF_SIZE_T")
+
+SIZEOF_SIZE_T: Final = (
+    int(SIZEOF_SIZE_T_SYSCONFIG)
+    if SIZEOF_SIZE_T_SYSCONFIG is not None
+    else (sys.maxsize + 1).bit_length() // 8
+)
+
+IS_32_BIT_PLATFORM: Final = int(SIZEOF_SIZE_T) == 4
 
 PLATFORM_SIZE = 4 if IS_32_BIT_PLATFORM else 8
 
-# Python 3.5 on macOS uses a hybrid 32/64-bit build that requires some workarounds.
-# The same generated C will be compiled in both 32 and 64 bit modes when building mypy
-# wheels (for an unknown reason).
-#
-# Note that we use "in ['darwin']" because of https://github.com/mypyc/mypyc/issues/761.
-IS_MIXED_32_64_BIT_BUILD = sys.platform in ['darwin'] and sys.version_info < (3, 6)  # type: Final
-
 # Maximum value for a short tagged integer.
-MAX_SHORT_INT = sys.maxsize >> 1  # type: Final
+MAX_SHORT_INT: Final = 2 ** (8 * int(SIZEOF_SIZE_T) - 2) - 1
+
+# Minimum value for a short tagged integer.
+MIN_SHORT_INT: Final = -(MAX_SHORT_INT) - 1
 
 # Maximum value for a short tagged integer represented as a C integer literal.
 #
-# Note: Assume that the compiled code uses the same bit width as mypyc, except for
-#       Python 3.5 on macOS.
-MAX_LITERAL_SHORT_INT = (sys.maxsize >> 1 if not IS_MIXED_32_64_BIT_BUILD
-                         else 2**30 - 1)  # type: Final
+# Note: Assume that the compiled code uses the same bit width as mypyc
+MAX_LITERAL_SHORT_INT: Final = MAX_SHORT_INT
+MIN_LITERAL_SHORT_INT: Final = -MAX_LITERAL_SHORT_INT - 1
 
-# Runtime C library files
-RUNTIME_C_FILES = [
-    'init.c',
-    'getargs.c',
-    'getargsfast.c',
-    'int_ops.c',
-    'list_ops.c',
-    'dict_ops.c',
-    'str_ops.c',
-    'set_ops.c',
-    'tuple_ops.c',
-    'exc_ops.c',
-    'misc_ops.c',
-    'generic_ops.c',
-]  # type: Final
+# Description of the C type used to track the definedness of attributes and
+# the presence of argument default values that have types with overlapping
+# error values. Each tracked attribute/argument has a dedicated bit in the
+# relevant bitmap.
+BITMAP_TYPE: Final = "uint32_t"
+BITMAP_BITS: Final = 32
+
+# Constant for keeping a (often borrowed) op alive for a short time (a few subexpressions,
+# no arbitrary computation or memory allocations), until flush_keep_alives() is called.
+KEEP_ALIVE_SHORT_LIVED: Final = 0
+# Keep value alive longer, up to until the current top-level expression has been fully
+# evaluated. This allows keeping alive values across function calls and arbitrary
+# computation. Note that some expressions (e.g. lambdas), restrict the scope of borrowing.
+KEEP_ALIVE_WHOLE_EXPRESSION: Final = 1
+
+# Runtime C library files that are always included (some ops may bring
+# extra dependencies via mypyc.ir.deps.SourceDep or mypyc.ir.deps.HeaderDep)
+RUNTIME_C_FILES: Final = [
+    "init.c",
+    "getargs.c",
+    "getargsfast.c",
+    "int_ops.c",
+    "float_ops.c",
+    "str_ops.c",
+    "bytes_ops.c",
+    "list_ops.c",
+    "dict_ops.c",
+    "set_ops.c",
+    "tuple_ops.c",
+    "exc_ops.c",
+    "misc_ops.c",
+    "locks.c",
+    "generic_ops.c",
+    "pythonsupport.c",
+    "function_wrapper.c",
+]
+
+# The file extension suffix for C extension modules on the current platform
+# (e.g. ".cpython-312-x86_64-linux-gnu.so" or ".pyd").
+_EXT_SUFFIXES: Final = importlib.machinery.EXTENSION_SUFFIXES
+EXT_SUFFIX: Final = _EXT_SUFFIXES[0] if _EXT_SUFFIXES else ".so"
 
 
-JsonDict = Dict[str, Any]
-
-
-def decorator_helper_name(func_name: str) -> str:
-    return '__mypyc_{}_decorator_helper__'.format(func_name)
+JsonDict = dict[str, Any]
 
 
 def shared_lib_name(group_name: str) -> str:
@@ -78,25 +160,38 @@ def shared_lib_name(group_name: str) -> str:
 
     (This just adds a suffix to the final component.)
     """
-    return '{}__mypyc'.format(group_name)
+    return f"{group_name}__mypyc"
 
 
 def short_name(name: str) -> str:
-    if name.startswith('builtins.'):
+    if name.startswith("builtins."):
         return name[9:]
     return name
 
 
-def use_fastcall(capi_version: Tuple[int, int]) -> bool:
-    # We can use METH_FASTCALL for faster wrapper functions on Python 3.7+.
-    return capi_version >= (3, 7)
+def get_id_from_name(name: str, fullname: str, line: int) -> str:
+    """Create a unique id for a function.
+
+    This creates an id that is unique for any given function definition, so that it can be used as
+    a dictionary key. This is usually the fullname of the function, but this is different in that
+    it handles the case where the function is named '_', in which case multiple different functions
+    could have the same name."""
+    if unnamed_function(name):
+        return f"{fullname}.{line}"
+    else:
+        return fullname
 
 
-def use_vectorcall(capi_version: Tuple[int, int]) -> bool:
-    # We can use vectorcalls to make calls on Python 3.8+ (PEP 590).
-    return capi_version >= (3, 8)
+def short_id_from_name(func_name: str, shortname: str, line: int | None) -> str:
+    if unnamed_function(func_name):
+        assert line is not None
+        partial_name = f"{shortname}.{line}"
+    else:
+        partial_name = shortname
+    return partial_name
 
 
-def use_method_vectorcall(capi_version: Tuple[int, int]) -> bool:
-    # We can use a dedicated vectorcall API to call methods on Python 3.9+.
-    return capi_version >= (3, 9)
+def bitmap_name(index: int) -> str:
+    if index == 0:
+        return "__bitmap"
+    return f"__bitmap{index + 1}"

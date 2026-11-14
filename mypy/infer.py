@@ -1,19 +1,49 @@
 """Utilities for type argument inference."""
 
-from typing import List, Optional, Sequence
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Final
 
 from mypy.constraints import (
-    infer_constraints, infer_constraints_for_callable, SUBTYPE_OF, SUPERTYPE_OF
+    SUBTYPE_OF,
+    SUPERTYPE_OF,
+    Constraint,
+    filter_imprecise_kinds,
+    infer_constraints,
+    infer_constraints_for_callable,
 )
-from mypy.types import Type, TypeVarId, CallableType
+from mypy.nodes import ArgKind
 from mypy.solve import solve_constraints
+from mypy.types import CallableType, Instance, ParamSpecType, Type, TypeVarLikeType
 
 
-def infer_function_type_arguments(callee_type: CallableType,
-                                  arg_types: Sequence[Optional[Type]],
-                                  arg_kinds: List[int],
-                                  formal_to_actual: List[List[int]],
-                                  strict: bool = True) -> List[Optional[Type]]:
+class ArgumentInferContext:
+    """Type argument inference context.
+
+    We need this because we pass around ``Mapping`` and ``Iterable`` types.
+    These types are only known by ``TypeChecker`` itself.
+    It is required for ``*`` and ``**`` argument inference.
+
+    https://github.com/python/mypy/issues/11144
+    """
+
+    def __init__(self, mapping_type: Instance, iterable_type: Instance) -> None:
+        self.mapping_type: Final = mapping_type
+        self.iterable_type: Final = iterable_type
+
+
+def infer_function_type_arguments(
+    callee_type: CallableType,
+    arg_types: Sequence[Type | None],
+    arg_kinds: list[ArgKind],
+    arg_names: Sequence[str | None] | None,
+    formal_to_actual: list[list[int]],
+    context: ArgumentInferContext,
+    strict: bool = True,
+    allow_polymorphic: bool = False,
+    extra_constraints: list[Constraint] | None = None,
+) -> tuple[list[Type | None], list[TypeVarLikeType]]:
     """Infer the type arguments of a generic function.
 
     Return an array of lower bound types for the type variables -1 (at
@@ -29,18 +59,31 @@ def infer_function_type_arguments(callee_type: CallableType,
     """
     # Infer constraints.
     constraints = infer_constraints_for_callable(
-        callee_type, arg_types, arg_kinds, formal_to_actual)
+        callee_type, arg_types, arg_kinds, arg_names, formal_to_actual, context
+    )
+    if extra_constraints:
+        constraints += extra_constraints
+        # Combining extra constraints may shadow precise constraints by imprecise ones.
+        if any(isinstance(v, ParamSpecType) for v in callee_type.variables):
+            constraints = filter_imprecise_kinds(constraints)
 
     # Solve constraints.
-    type_vars = callee_type.type_var_ids()
-    return solve_constraints(type_vars, constraints, strict)
+    type_vars = callee_type.variables
+    return solve_constraints(type_vars, constraints, strict, allow_polymorphic)
 
 
-def infer_type_arguments(type_var_ids: List[TypeVarId],
-                         template: Type, actual: Type,
-                         is_supertype: bool = False) -> List[Optional[Type]]:
+def infer_type_arguments(
+    type_vars: Sequence[TypeVarLikeType],
+    template: Type,
+    actual: Type,
+    is_supertype: bool = False,
+    skip_unsatisfied: bool = False,
+    erase_types: bool = True,
+) -> tuple[list[Type | None], list[Constraint]]:
     # Like infer_function_type_arguments, but only match a single type
     # against a generic type.
-    constraints = infer_constraints(template, actual,
-                                    SUPERTYPE_OF if is_supertype else SUBTYPE_OF)
-    return solve_constraints(type_var_ids, constraints)
+    constraints = infer_constraints(
+        template, actual, SUPERTYPE_OF if is_supertype else SUBTYPE_OF, erase_types=erase_types
+    )
+    solutions, _ = solve_constraints(type_vars, constraints, skip_unsatisfied=skip_unsatisfied)
+    return solutions, constraints

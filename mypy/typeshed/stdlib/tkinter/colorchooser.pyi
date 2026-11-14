@@ -1,9 +1,12 @@
+from tkinter import Misc
 from tkinter.commondialog import Dialog
-from typing import Any, ClassVar, Optional, Tuple, Union
+from typing import ClassVar
+
+__all__ = ["Chooser", "askcolor"]
 
 class Chooser(Dialog):
     command: ClassVar[str]
 
 def askcolor(
-    color: Optional[Union[str, bytes]] = ..., **options: Any
-) -> Union[Tuple[None, None], Tuple[Tuple[float, float, float], str]]: ...
+    color: str | bytes | None = None, *, initialcolor: str = ..., parent: Misc = ..., title: str = ...
+) -> tuple[None, None] | tuple[tuple[int, int, int], str]: ...

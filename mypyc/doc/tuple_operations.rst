@@ -21,6 +21,8 @@ Operators
 
 * ``tup[n]`` (integer index)
 * ``tup[n:m]``, ``tup[n:]``, ``tup[:m]`` (slicing)
+* ``tup1 + tup2``
+* ``tup * n``, ``n * tup``
 
 Statements
 ----------
@@ -31,3 +33,4 @@ Functions
 ---------
 
 * ``len(tup: tuple)``
+* ``hash(tup)`` (for fixed-length tuples)

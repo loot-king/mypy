@@ -1,41 +1,60 @@
 import sys
-from _typeshed import SupportsRead
-from typing import IO, Any, Callable, Iterable, Iterator, List, NamedTuple, Optional, Tuple, Union
+from _typeshed import StrOrBytesPath, SupportsRead
+from _typeshed.importlib import LoaderProtocol, MetaPathFinderProtocol, PathEntryFinderProtocol
+from collections.abc import Callable, Iterable, Iterator
+from typing import IO, Any, NamedTuple, TypeVar
+from typing_extensions import deprecated
 
-if sys.version_info >= (3,):
-    from importlib.abc import Loader, MetaPathFinder, PathEntryFinder
-else:
-    Loader = Any
-    MetaPathFinder = Any
-    PathEntryFinder = Any
+__all__ = [
+    "get_importer",
+    "iter_importers",
+    "walk_packages",
+    "iter_modules",
+    "get_data",
+    "read_code",
+    "extend_path",
+    "ModuleInfo",
+]
+if sys.version_info < (3, 14):
+    __all__ += ["get_loader", "find_loader"]
+if sys.version_info < (3, 12):
+    __all__ += ["ImpImporter", "ImpLoader"]
 
-if sys.version_info >= (3, 6):
-    class ModuleInfo(NamedTuple):
-        module_finder: Union[MetaPathFinder, PathEntryFinder]
-        name: str
-        ispkg: bool
-    _ModuleInfoLike = ModuleInfo
-else:
-    _ModuleInfoLike = Tuple[Union[MetaPathFinder, PathEntryFinder], str, bool]
+_PathT = TypeVar("_PathT", bound=Iterable[str])
 
-def extend_path(path: List[str], name: str) -> List[str]: ...
+class ModuleInfo(NamedTuple):
+    module_finder: MetaPathFinderProtocol | PathEntryFinderProtocol
+    name: str
+    ispkg: bool
 
-class ImpImporter:
-    def __init__(self, path: Optional[str] = ...) -> None: ...
+def extend_path(path: _PathT, name: str) -> _PathT: ...
 
-class ImpLoader:
-    def __init__(self, fullname: str, file: IO[str], filename: str, etc: Tuple[str, str, int]) -> None: ...
+if sys.version_info < (3, 12):
+    @deprecated("Deprecated since Python 3.3; removed in Python 3.12. Use the `importlib` module instead.")
+    class ImpImporter:
+        def __init__(self, path: StrOrBytesPath | None = None) -> None: ...
 
-def find_loader(fullname: str) -> Optional[Loader]: ...
-def get_importer(path_item: str) -> Optional[PathEntryFinder]: ...
-def get_loader(module_or_name: str) -> Loader: ...
-def iter_importers(fullname: str = ...) -> Iterator[Union[MetaPathFinder, PathEntryFinder]]: ...
-def iter_modules(path: Optional[Iterable[str]] = ..., prefix: str = ...) -> Iterator[_ModuleInfoLike]: ...
+    @deprecated("Deprecated since Python 3.3; removed in Python 3.12. Use the `importlib` module instead.")
+    class ImpLoader:
+        def __init__(self, fullname: str, file: IO[str], filename: StrOrBytesPath, etc: tuple[str, str, int]) -> None: ...
+
+if sys.version_info < (3, 14):
+    @deprecated("Deprecated; removed in Python 3.14. Use `importlib.util.find_spec()` instead.")
+    def find_loader(fullname: str) -> LoaderProtocol | None: ...
+    @deprecated("Deprecated; removed in Python 3.14. Use `importlib.util.find_spec()` instead.")
+    def get_loader(module_or_name: str) -> LoaderProtocol | None: ...
+
+def get_importer(path_item: StrOrBytesPath) -> PathEntryFinderProtocol | None: ...
+def iter_importers(fullname: str = "") -> Iterator[MetaPathFinderProtocol | PathEntryFinderProtocol]: ...
+def iter_modules(path: Iterable[StrOrBytesPath] | None = None, prefix: str = "") -> Iterator[ModuleInfo]: ...
 def read_code(stream: SupportsRead[bytes]) -> Any: ...  # undocumented
 def walk_packages(
-    path: Optional[Iterable[str]] = ..., prefix: str = ..., onerror: Optional[Callable[[str], None]] = ...
-) -> Iterator[_ModuleInfoLike]: ...
-def get_data(package: str, resource: str) -> Optional[bytes]: ...
+    path: Iterable[StrOrBytesPath] | None = None, prefix: str = "", onerror: Callable[[str], object] | None = None
+) -> Iterator[ModuleInfo]: ...
+def get_data(package: str, resource: str) -> bytes | None: ...
 
-if sys.version_info >= (3, 9):
+if sys.version_info >= (3, 15):
+    def resolve_name(name: str, *, strict: bool = False) -> Any: ...
+
+else:
     def resolve_name(name: str) -> Any: ...

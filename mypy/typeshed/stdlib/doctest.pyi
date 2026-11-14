@@ -1,96 +1,144 @@
 import sys
 import types
 import unittest
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple, Type, Union
+from _typeshed import ExcInfo
+from collections.abc import Callable
+from typing import Any, Final, NamedTuple, TypeAlias, type_check_only
+from typing_extensions import Self
 
-class TestResults(NamedTuple):
-    failed: int
-    attempted: int
+__all__ = [
+    "register_optionflag",
+    "DONT_ACCEPT_TRUE_FOR_1",
+    "DONT_ACCEPT_BLANKLINE",
+    "NORMALIZE_WHITESPACE",
+    "ELLIPSIS",
+    "SKIP",
+    "IGNORE_EXCEPTION_DETAIL",
+    "COMPARISON_FLAGS",
+    "REPORT_UDIFF",
+    "REPORT_CDIFF",
+    "REPORT_NDIFF",
+    "REPORT_ONLY_FIRST_FAILURE",
+    "REPORTING_FLAGS",
+    "FAIL_FAST",
+    "Example",
+    "DocTest",
+    "DocTestParser",
+    "DocTestFinder",
+    "DocTestRunner",
+    "OutputChecker",
+    "DocTestFailure",
+    "UnexpectedException",
+    "DebugRunner",
+    "testmod",
+    "testfile",
+    "run_docstring_examples",
+    "DocTestSuite",
+    "DocFileSuite",
+    "set_unittest_reportflags",
+    "script_from_examples",
+    "testsource",
+    "debug_src",
+    "debug",
+]
 
-OPTIONFLAGS_BY_NAME: Dict[str, int]
+if sys.version_info >= (3, 13):
+    @type_check_only
+    class _TestResultsBase(NamedTuple):
+        failed: int
+        attempted: int
+
+    class TestResults(_TestResultsBase):
+        def __new__(cls, failed: int, attempted: int, *, skipped: int = 0) -> Self: ...
+        skipped: int
+
+else:
+    class TestResults(NamedTuple):
+        failed: int
+        attempted: int
+
+OPTIONFLAGS_BY_NAME: Final[dict[str, int]]
 
 def register_optionflag(name: str) -> int: ...
 
-DONT_ACCEPT_TRUE_FOR_1: int
-DONT_ACCEPT_BLANKLINE: int
-NORMALIZE_WHITESPACE: int
-ELLIPSIS: int
-SKIP: int
-IGNORE_EXCEPTION_DETAIL: int
+DONT_ACCEPT_TRUE_FOR_1: Final = 1
+DONT_ACCEPT_BLANKLINE: Final = 2
+NORMALIZE_WHITESPACE: Final = 4
+ELLIPSIS: Final = 8
+SKIP: Final = 16
+IGNORE_EXCEPTION_DETAIL: Final = 32
 
-COMPARISON_FLAGS: int
+COMPARISON_FLAGS: Final = 63
 
-REPORT_UDIFF: int
-REPORT_CDIFF: int
-REPORT_NDIFF: int
-REPORT_ONLY_FIRST_FAILURE: int
-if sys.version_info >= (3, 4):
-    FAIL_FAST: int
+REPORT_UDIFF: Final = 64
+REPORT_CDIFF: Final = 128
+REPORT_NDIFF: Final = 256
+REPORT_ONLY_FIRST_FAILURE: Final = 512
+FAIL_FAST: Final = 1024
 
-REPORTING_FLAGS: int
+REPORTING_FLAGS: Final = 1984
 
-BLANKLINE_MARKER: str
-ELLIPSIS_MARKER: str
+BLANKLINE_MARKER: Final = "<BLANKLINE>"
+ELLIPSIS_MARKER: Final = "..."
 
 class Example:
     source: str
     want: str
-    exc_msg: Optional[str]
+    exc_msg: str | None
     lineno: int
     indent: int
-    options: Dict[int, bool]
+    options: dict[int, bool]
     def __init__(
         self,
         source: str,
         want: str,
-        exc_msg: Optional[str] = ...,
-        lineno: int = ...,
-        indent: int = ...,
-        options: Optional[Dict[int, bool]] = ...,
+        exc_msg: str | None = None,
+        lineno: int = 0,
+        indent: int = 0,
+        options: dict[int, bool] | None = None,
     ) -> None: ...
     def __hash__(self) -> int: ...
+    def __eq__(self, other: object) -> bool: ...
 
 class DocTest:
-    examples: List[Example]
-    globs: Dict[str, Any]
+    examples: list[Example]
+    globs: dict[str, Any]
     name: str
-    filename: Optional[str]
-    lineno: Optional[int]
-    docstring: Optional[str]
+    filename: str | None
+    lineno: int | None
+    docstring: str | None
     def __init__(
         self,
-        examples: List[Example],
-        globs: Dict[str, Any],
+        examples: list[Example],
+        globs: dict[str, Any],
         name: str,
-        filename: Optional[str],
-        lineno: Optional[int],
-        docstring: Optional[str],
+        filename: str | None,
+        lineno: int | None,
+        docstring: str | None,
     ) -> None: ...
     def __hash__(self) -> int: ...
     def __lt__(self, other: DocTest) -> bool: ...
+    def __eq__(self, other: object) -> bool: ...
 
 class DocTestParser:
-    def parse(self, string: str, name: str = ...) -> List[Union[str, Example]]: ...
-    def get_doctest(
-        self, string: str, globs: Dict[str, Any], name: str, filename: Optional[str], lineno: Optional[int]
-    ) -> DocTest: ...
-    def get_examples(self, string: str, name: str = ...) -> List[Example]: ...
+    def parse(self, string: str, name: str = "<string>") -> list[str | Example]: ...
+    def get_doctest(self, string: str, globs: dict[str, Any], name: str, filename: str | None, lineno: int | None) -> DocTest: ...
+    def get_examples(self, string: str, name: str = "<string>") -> list[Example]: ...
 
 class DocTestFinder:
     def __init__(
-        self, verbose: bool = ..., parser: DocTestParser = ..., recurse: bool = ..., exclude_empty: bool = ...
+        self, verbose: bool = False, parser: DocTestParser = ..., recurse: bool = True, exclude_empty: bool = True
     ) -> None: ...
     def find(
         self,
         obj: object,
-        name: Optional[str] = ...,
-        module: Union[None, bool, types.ModuleType] = ...,
-        globs: Optional[Dict[str, Any]] = ...,
-        extraglobs: Optional[Dict[str, Any]] = ...,
-    ) -> List[DocTest]: ...
+        name: str | None = None,
+        module: bool | types.ModuleType | None = None,
+        globs: dict[str, Any] | None = None,
+        extraglobs: dict[str, Any] | None = None,
+    ) -> list[DocTest]: ...
 
-_Out = Callable[[str], Any]
-_ExcInfo = Tuple[Type[BaseException], BaseException, types.TracebackType]
+_Out: TypeAlias = Callable[[str], object]
 
 class DocTestRunner:
     DIVIDER: str
@@ -98,16 +146,21 @@ class DocTestRunner:
     original_optionflags: int
     tries: int
     failures: int
+    if sys.version_info >= (3, 13):
+        skips: int
     test: DocTest
-    def __init__(self, checker: Optional[OutputChecker] = ..., verbose: Optional[bool] = ..., optionflags: int = ...) -> None: ...
+    def __init__(self, checker: OutputChecker | None = None, verbose: bool | None = None, optionflags: int = 0) -> None: ...
+    if sys.version_info >= (3, 15):
+        def report_skip(self, out: _Out, test: DocTest, example: Example) -> None: ...
+
     def report_start(self, out: _Out, test: DocTest, example: Example) -> None: ...
     def report_success(self, out: _Out, test: DocTest, example: Example, got: str) -> None: ...
     def report_failure(self, out: _Out, test: DocTest, example: Example, got: str) -> None: ...
-    def report_unexpected_exception(self, out: _Out, test: DocTest, example: Example, exc_info: _ExcInfo) -> None: ...
+    def report_unexpected_exception(self, out: _Out, test: DocTest, example: Example, exc_info: ExcInfo) -> None: ...
     def run(
-        self, test: DocTest, compileflags: Optional[int] = ..., out: Optional[_Out] = ..., clear_globs: bool = ...
+        self, test: DocTest, compileflags: int | None = None, out: _Out | None = None, clear_globs: bool = True
     ) -> TestResults: ...
-    def summarize(self, verbose: Optional[bool] = ...) -> TestResults: ...
+    def summarize(self, verbose: bool | None = None) -> TestResults: ...
     def merge(self, other: DocTestRunner) -> None: ...
 
 class OutputChecker:
@@ -123,45 +176,45 @@ class DocTestFailure(Exception):
 class UnexpectedException(Exception):
     test: DocTest
     example: Example
-    exc_info: _ExcInfo
-    def __init__(self, test: DocTest, example: Example, exc_info: _ExcInfo) -> None: ...
+    exc_info: ExcInfo
+    def __init__(self, test: DocTest, example: Example, exc_info: ExcInfo) -> None: ...
 
 class DebugRunner(DocTestRunner): ...
 
-master: Optional[DocTestRunner]
+master: DocTestRunner | None
 
 def testmod(
-    m: Optional[types.ModuleType] = ...,
-    name: Optional[str] = ...,
-    globs: Optional[Dict[str, Any]] = ...,
-    verbose: Optional[bool] = ...,
-    report: bool = ...,
-    optionflags: int = ...,
-    extraglobs: Optional[Dict[str, Any]] = ...,
-    raise_on_error: bool = ...,
-    exclude_empty: bool = ...,
+    m: types.ModuleType | None = None,
+    name: str | None = None,
+    globs: dict[str, Any] | None = None,
+    verbose: bool | None = None,
+    report: bool = True,
+    optionflags: int = 0,
+    extraglobs: dict[str, Any] | None = None,
+    raise_on_error: bool = False,
+    exclude_empty: bool = False,
 ) -> TestResults: ...
 def testfile(
     filename: str,
-    module_relative: bool = ...,
-    name: Optional[str] = ...,
-    package: Union[None, str, types.ModuleType] = ...,
-    globs: Optional[Dict[str, Any]] = ...,
-    verbose: Optional[bool] = ...,
-    report: bool = ...,
-    optionflags: int = ...,
-    extraglobs: Optional[Dict[str, Any]] = ...,
-    raise_on_error: bool = ...,
+    module_relative: bool = True,
+    name: str | None = None,
+    package: str | types.ModuleType | None = None,
+    globs: dict[str, Any] | None = None,
+    verbose: bool | None = None,
+    report: bool = True,
+    optionflags: int = 0,
+    extraglobs: dict[str, Any] | None = None,
+    raise_on_error: bool = False,
     parser: DocTestParser = ...,
-    encoding: Optional[str] = ...,
+    encoding: str | None = None,
 ) -> TestResults: ...
 def run_docstring_examples(
     f: object,
-    globs: Dict[str, Any],
-    verbose: bool = ...,
-    name: str = ...,
-    compileflags: Optional[int] = ...,
-    optionflags: int = ...,
+    globs: dict[str, Any],
+    verbose: bool = False,
+    name: str = "NoName",
+    compileflags: int | None = None,
+    optionflags: int = 0,
 ) -> None: ...
 def set_unittest_reportflags(flags: int) -> int: ...
 
@@ -169,56 +222,44 @@ class DocTestCase(unittest.TestCase):
     def __init__(
         self,
         test: DocTest,
-        optionflags: int = ...,
-        setUp: Optional[Callable[[DocTest], Any]] = ...,
-        tearDown: Optional[Callable[[DocTest], Any]] = ...,
-        checker: Optional[OutputChecker] = ...,
+        optionflags: int = 0,
+        setUp: Callable[[DocTest], object] | None = None,
+        tearDown: Callable[[DocTest], object] | None = None,
+        checker: OutputChecker | None = None,
     ) -> None: ...
-    def setUp(self) -> None: ...
-    def tearDown(self) -> None: ...
     def runTest(self) -> None: ...
     def format_failure(self, err: str) -> str: ...
-    def debug(self) -> None: ...
-    def id(self) -> str: ...
     def __hash__(self) -> int: ...
-    def shortDescription(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
 
 class SkipDocTestCase(DocTestCase):
     def __init__(self, module: types.ModuleType) -> None: ...
-    def setUp(self) -> None: ...
     def test_skip(self) -> None: ...
-    def shortDescription(self) -> str: ...
 
-if sys.version_info >= (3, 4):
-    class _DocTestSuite(unittest.TestSuite): ...
-
-else:
-    _DocTestSuite = unittest.TestSuite
+class _DocTestSuite(unittest.TestSuite): ...
 
 def DocTestSuite(
-    module: Union[None, str, types.ModuleType] = ...,
-    globs: Optional[Dict[str, Any]] = ...,
-    extraglobs: Optional[Dict[str, Any]] = ...,
-    test_finder: Optional[DocTestFinder] = ...,
+    module: str | types.ModuleType | None = None,
+    globs: dict[str, Any] | None = None,
+    extraglobs: dict[str, Any] | None = None,
+    test_finder: DocTestFinder | None = None,
     **options: Any,
 ) -> _DocTestSuite: ...
 
-class DocFileCase(DocTestCase):
-    def id(self) -> str: ...
-    def format_failure(self, err: str) -> str: ...
+class DocFileCase(DocTestCase): ...
 
 def DocFileTest(
     path: str,
-    module_relative: bool = ...,
-    package: Union[None, str, types.ModuleType] = ...,
-    globs: Optional[Dict[str, Any]] = ...,
+    module_relative: bool = True,
+    package: str | types.ModuleType | None = None,
+    globs: dict[str, Any] | None = None,
     parser: DocTestParser = ...,
-    encoding: Optional[str] = ...,
+    encoding: str | None = None,
     **options: Any,
 ) -> DocFileCase: ...
 def DocFileSuite(*paths: str, **kw: Any) -> _DocTestSuite: ...
 def script_from_examples(s: str) -> str: ...
-def testsource(module: Union[None, str, types.ModuleType], name: str) -> str: ...
-def debug_src(src: str, pm: bool = ..., globs: Optional[Dict[str, Any]] = ...) -> None: ...
-def debug_script(src: str, pm: bool = ..., globs: Optional[Dict[str, Any]] = ...) -> None: ...
-def debug(module: Union[None, str, types.ModuleType], name: str, pm: bool = ...) -> None: ...
+def testsource(module: str | types.ModuleType | None, name: str) -> str: ...
+def debug_src(src: str, pm: bool = False, globs: dict[str, Any] | None = None) -> None: ...
+def debug_script(src: str, pm: bool = False, globs: dict[str, Any] | None = None) -> None: ...
+def debug(module: str | types.ModuleType | None, name: str, pm: bool = False) -> None: ...

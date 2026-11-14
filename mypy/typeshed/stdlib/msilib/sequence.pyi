@@ -1,14 +1,13 @@
 import sys
-from typing import List, Optional, Tuple
+from typing import Final, TypeAlias
 
 if sys.platform == "win32":
+    _SequenceType: TypeAlias = list[tuple[str, str | None, int]]
 
-    _SequenceType = List[Tuple[str, Optional[str], int]]
+    AdminExecuteSequence: Final[_SequenceType]
+    AdminUISequence: Final[_SequenceType]
+    AdvtExecuteSequence: Final[_SequenceType]
+    InstallExecuteSequence: Final[_SequenceType]
+    InstallUISequence: Final[_SequenceType]
 
-    AdminExecuteSequence: _SequenceType
-    AdminUISequence: _SequenceType
-    AdvtExecuteSequence: _SequenceType
-    InstallExecuteSequence: _SequenceType
-    InstallUISequence: _SequenceType
-
-    tables: List[str]
+    tables: Final[list[str]]

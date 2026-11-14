@@ -1,4 +1,5 @@
 # builtins stub used in boolean-related test cases.
+import types
 from typing import Generic, TypeVar
 T = TypeVar('T')
 
@@ -10,9 +11,10 @@ class object:
 class type: pass
 class tuple(Generic[T]): pass
 class function: pass
-class bool: pass
 class int: pass
+class bool(int): pass
 class float: pass
 class str: pass
-class unicode: pass
-class ellipsis: pass
+class list(Generic[T]): pass
+class property: pass
+class dict: pass

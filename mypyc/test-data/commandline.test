@@ -24,6 +24,7 @@ for x in [a, b, p, p.q]:
 import b
 import c
 from p import s
+from typing import NamedTuple
 
 print('<a>', ord('A') == 65)  # Test full builtins
 
@@ -41,6 +42,11 @@ class B:
 print('<a>', f(5).x)
 print('<c>', c.foo())
 assert s.bar(10) == 20
+
+class NT(NamedTuple):
+    x: int
+
+print(NT(2))
 
 [file b.py]
 import a
@@ -79,6 +85,7 @@ def bar(x: int) -> int:
 <a> True
 <a> 5
 <c> 10
+NT(x=2)
 <main> 16
 
 -- This test is here so we can turn it on when we get nervous about
@@ -94,12 +101,70 @@ assert a.f(10) == 100
 def f(x: int) -> int:
     return x*x
 
-[case testErrorOutput]
+[case testErrorOutput1]
 # cmd: test.py
 
 [file test.py]
-from typing import List, Any
-from typing_extensions import Final
+from functools import singledispatch
+from mypy_extensions import trait
+from typing import Any
+
+def decorator(x: Any) -> Any:
+    return x
+
+class NeverMetaclass(type):  # E: Inheriting from most builtin types is unimplemented \
+                             # N: Potential workaround: @mypy_extensions.mypyc_attr(native_class=False) \
+                             # N: https://mypyc.readthedocs.io/en/stable/native_classes.html#defining-non-native-classes
+    pass
+
+class Concrete1:
+    pass
+
+@trait
+class Trait1:
+    pass
+
+class Concrete2:
+    pass
+
+@decorator
+class NonExt(Concrete1):  # E: Non-extension classes may not inherit from extension classes
+    pass
+
+class NopeMultipleInheritanceAndBadOrder3(Trait1, Concrete1, Concrete2):  # E: Non-trait base must appear first in parent list
+    pass
+
+class NopeBadOrder(Trait1, Concrete2):  # E: Non-trait base must appear first in parent list
+    pass
+
+class Foo:
+    pass
+
+@singledispatch
+def a(arg) -> None:
+    pass
+
+@decorator # E: Calling decorator after registering function not supported
+@a.register
+def g(arg: int) -> None:
+    pass
+
+@a.register
+@decorator
+def h(arg: str) -> None:
+    pass
+
+@decorator
+@decorator # E: Calling decorator after registering function not supported
+@a.register
+def i(arg: Foo) -> None:
+    pass
+
+[case testErrorOutput2]
+# cmd: test.py
+
+[file test.py]
+from typing import Final, List, Any, AsyncIterable
 from mypy_extensions import trait, mypyc_attr
 
 def busted(b: bool) -> None:
@@ -131,9 +196,6 @@ Foo.lol = 50  # E: Only class variables defined as ClassVar can be assigned to
 def decorator(x: Any) -> Any:
     return x
 
-class NeverMetaclass(type):  # E: Inheriting from most builtin types is unimplemented
-    pass
-
 class Concrete1:
     pass
 
@@ -142,7 +204,7 @@ class PureTrait:
     pass
 
 @trait
-class Trait1(Concrete1):
+class Trait1:
     pass
 
 class Concrete2:
@@ -152,18 +214,20 @@ class Concrete2:
 class Trait2(Concrete2):
     pass
 
-@decorator
-class NonExt(Concrete1):  # E: Non-extension classes may not inherit from extension classes
+class NopeMultipleInheritance(Concrete1, Concrete2):  # E: Multiple inheritance is not supported (except for traits)
     pass
 
-class Nope(Trait1, Concrete2):  # E: Non-trait bases must appear first in parent list  # E: Non-trait MRO must be linear
+class NopeMultipleInheritanceAndBadOrder(Concrete1, Trait1, Concrete2):  # E: Multiple inheritance is not supported (except for traits)
+    pass
+
+class NopeMultipleInheritanceAndBadOrder2(Concrete1, Concrete2, Trait1):  # E: Multiple inheritance is not supported (except for traits)
     pass
 
 @decorator
 class NonExt2:
     @property  # E: Property setters not supported in non-extension classes
     def test(self) -> int:
-        pass
+        return 0
 
     @test.setter
     def test(self, x: int) -> None:
@@ -178,9 +242,9 @@ wtvr = next(i for i in range(10) if i == 5)
 
 d1 = {1: 2}
 
-# Make sure we can produce an error when we hit the awful None case
+# Since PR 18180, the following pattern should pose no problems anymore:
 def f(l: List[object]) -> None:
-    x = None  # E: Local variable "x" has inferred type None; add an annotation
+    x = None
     for i in l:
         if x is None:
             x = i
@@ -192,3 +256,83 @@ class AllowInterp1(Concrete1):  # E: Base class "test.Concrete1" does not allow 
 @mypyc_attr(allow_interpreted_subclasses=True)
 class AllowInterp2(PureTrait):  # E: Base class "test.PureTrait" does not allow interpreted subclasses
     pass
+
+async def async_generators() -> AsyncIterable[int]:
+    yield 1  # E: async generators are unimplemented
+
+[case testOnlyWarningOutput]
+# cmd: test.py
+
+[file test.py]
+names = (str(v) for v in [1, 2, 3])  # W: Treating generator comprehension as list
+
+[case testSubPackage]
+# cmd: pkg/sub/foo.py
+from pkg.sub import foo
+
+[file pkg/__init__.py]
+
+[file pkg/sub/__init__.py]
+print("importing...")
+from . import foo
+print("done")
+
+[file pkg/sub/foo.py]
+print("imported foo")
+
+[out]
+importing...
+imported foo
+done
+
+[case testImportFromInitPy]
+# cmd: foo.py
+import foo
+
+[file pkg2/__init__.py]
+
+[file pkg2/mod2.py]
+class A:
+    class B:
+        pass
+
+[file pkg1/__init__.py]
+from pkg2.mod2 import A
+
+[file foo.py]
+import pkg1
+from typing import TypedDict
+
+class Eggs(TypedDict):
+    obj1: pkg1.A.B
+
+print(type(Eggs(obj1=pkg1.A.B())["obj1"]).__name__)
+print(type(Eggs(obj1=pkg1.A.B())["obj1"]).__module__)
+
+[out]
+B
+pkg2.mod2
+
+[case testCompilePackageOnlyInitPy]
+# cmd: pkg/__init__.py
+import os.path
+import pkg
+
+print(pkg.x)
+assert os.path.splitext(pkg.__file__)[1] != ".py"
+
+[file pkg/__init__.py]
+x: int = 1
+
+[out]
+1
+
+[case testStrictBytesRequired]
+# cmd: --no-strict-bytes a.py
+
+[file a.py]
+def f(b: bytes) -> None: pass
+f(bytearray())
+
+[out]
+a.py: error: Option --strict-bytes cannot be disabled when using mypyc

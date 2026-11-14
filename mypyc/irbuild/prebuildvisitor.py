@@ -1,12 +1,62 @@
-from typing import Dict, List, Set
+from __future__ import annotations
 
 from mypy.nodes import (
-    Decorator, Expression, FuncDef, FuncItem, LambdaExpr, NameExpr, SymbolNode, Var, MemberExpr
+    AssignmentStmt,
+    Block,
+    Decorator,
+    DelStmt,
+    DictionaryComprehension,
+    Expression,
+    FuncDef,
+    FuncItem,
+    GeneratorExpr,
+    Import,
+    LambdaExpr,
+    ListExpr,
+    MemberExpr,
+    MypyFile,
+    NameExpr,
+    Node,
+    StrExpr,
+    SymbolNode,
+    TupleExpr,
+    Var,
 )
-from mypy.traverser import TraverserVisitor
+from mypy.traverser import ExtendedTraverserVisitor, TraverserVisitor
+from mypy.types import Type
+from mypyc.errors import Errors
+from mypyc.irbuild.missingtypevisitor import MissingTypesVisitor
 
 
-class PreBuildVisitor(TraverserVisitor):
+class _LambdaChecker(TraverserVisitor):
+    """Check whether an AST subtree contains a lambda expression."""
+
+    found = False
+
+    def visit_lambda_expr(self, _o: LambdaExpr) -> None:
+        self.found = True
+
+
+def _comprehension_has_lambda(node: GeneratorExpr | DictionaryComprehension) -> bool:
+    """Return True if a comprehension body contains a lambda.
+
+    Only checks body expressions (left_expr/key/value and conditions),
+    not the sequences, since sequences are evaluated in the enclosing scope.
+    """
+    checker = _LambdaChecker()
+    if isinstance(node, GeneratorExpr):
+        node.left_expr.accept(checker)
+    else:
+        if node.key is not None:
+            node.key.accept(checker)
+        node.value.accept(checker)
+    for conds in node.condlists:
+        for cond in conds:
+            cond.accept(checker)
+    return checker.found
+
+
+class PreBuildVisitor(ExtendedTraverserVisitor):
     """Mypy file AST visitor run before building the IR.
 
     This collects various things, including:
@@ -16,39 +66,104 @@ class PreBuildVisitor(TraverserVisitor):
     * Find non-local variables (free variables)
     * Find property setters
     * Find decorators of functions
+    * Find module import groups
 
     The main IR build pass uses this information.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        errors: Errors,
+        current_file: MypyFile,
+        decorators_to_remove: dict[FuncDef, list[int]],
+        types: dict[Expression, Type],
+    ) -> None:
         super().__init__()
         # Dict from a function to symbols defined directly in the
         # function that are used as non-local (free) variables within a
         # nested function.
-        self.free_variables = {}  # type: Dict[FuncItem, Set[SymbolNode]]
+        self.free_variables: dict[FuncItem, set[SymbolNode]] = {}
 
         # Intermediate data structure used to find the function where
         # a SymbolNode is declared. Initially this may point to a
         # function nested inside the function with the declaration,
         # but we'll eventually update this to refer to the function
         # with the declaration.
-        self.symbols_to_funcs = {}  # type: Dict[SymbolNode, FuncItem]
+        self.symbols_to_funcs: dict[SymbolNode, FuncItem] = {}
 
         # Stack representing current function nesting.
-        self.funcs = []  # type: List[FuncItem]
+        self.funcs: list[FuncItem] = []
 
         # All property setters encountered so far.
-        self.prop_setters = set()  # type: Set[FuncDef]
+        self.prop_setters: set[FuncDef] = set()
+
+        # Local variables that occur in a del statement. This is needed before
+        # their first assignment is lowered (see IRBuilder.get_assignment_target).
+        self.deleted_vars: set[Var] = set()
 
         # A map from any function that contains nested functions to
         # a set of all the functions that are nested within it.
-        self.encapsulating_funcs = {}  # type: Dict[FuncItem, List[FuncItem]]
+        self.encapsulating_funcs: dict[FuncItem, list[FuncItem]] = {}
 
         # Map nested function to its parent/encapsulating function.
-        self.nested_funcs = {}  # type: Dict[FuncItem, FuncItem]
+        self.nested_funcs: dict[FuncItem, FuncItem] = {}
 
         # Map function to its non-special decorators.
-        self.funcs_to_decorators = {}  # type: Dict[FuncDef, List[Expression]]
+        self.funcs_to_decorators: dict[FuncDef, list[Expression]] = {}
+
+        # Map function to indices of decorators to remove
+        self.decorators_to_remove: dict[FuncDef, list[int]] = decorators_to_remove
+
+        # A mapping of import groups (a series of Import nodes with
+        # nothing in between) where each group is keyed by its first
+        # import node.
+        self.module_import_groups: dict[Import, list[Import]] = {}
+        self._current_import_group: Import | None = None
+
+        self.errors: Errors = errors
+
+        self.current_file: MypyFile = current_file
+
+        self.missing_types_visitor = MissingTypesVisitor(types)
+
+        # Synthetic FuncDef representing the module scope, created on demand
+        # when a comprehension at module/class level contains a lambda.
+        self._module_fitem: FuncDef | None = None
+
+        # Counter for generating unique synthetic comprehension scope names.
+        self._comprehension_counter = 0
+
+        # Map comprehension AST nodes to synthetic FuncDefs representing
+        # their scope (only for comprehensions that contain lambdas).
+        self.comprehension_to_fitem: dict[GeneratorExpr | DictionaryComprehension, FuncDef] = {}
+
+    def visit(self, o: Node) -> bool:
+        if not isinstance(o, Import):
+            self._current_import_group = None
+        return True
+
+    def visit_assignment_stmt(self, stmt: AssignmentStmt) -> None:
+        # These are cases where mypy may not have types for certain expressions,
+        # but mypyc needs some form type to exist.
+        if stmt.is_alias_def:
+            stmt.rvalue.accept(self.missing_types_visitor)
+        return super().visit_assignment_stmt(stmt)
+
+    def visit_block(self, block: Block) -> None:
+        self._current_import_group = None
+        super().visit_block(block)
+        self._current_import_group = None
+
+    def visit_del_stmt(self, stmt: DelStmt) -> None:
+        self.record_deleted_names(stmt.expr)
+        super().visit_del_stmt(stmt)
+
+    def record_deleted_names(self, expr: Expression) -> None:
+        if isinstance(expr, NameExpr) and isinstance(expr.node, Var):
+            self.deleted_vars.add(expr.node)
+        elif isinstance(expr, (ListExpr, TupleExpr)):
+            for item in expr.items:
+                self.record_deleted_names(item)
 
     def visit_decorator(self, dec: Decorator) -> None:
         if dec.decorators:
@@ -59,16 +174,28 @@ class PreBuildVisitor(TraverserVisitor):
             # mypy. Functions decorated only by special decorators
             # (and property setters) are not treated as decorated
             # functions by the IR builder.
-            if isinstance(dec.decorators[0], MemberExpr) and dec.decorators[0].name == 'setter':
+            if isinstance(dec.decorators[0], MemberExpr) and dec.decorators[0].name == "setter":
                 # Property setters are not treated as decorated methods.
                 self.prop_setters.add(dec.func)
             else:
-                self.funcs_to_decorators[dec.func] = dec.decorators
+                decorators_to_store = dec.decorators.copy()
+                if dec.func in self.decorators_to_remove:
+                    to_remove = self.decorators_to_remove[dec.func]
+
+                    for i in reversed(to_remove):
+                        del decorators_to_store[i]
+                    # if all of the decorators are removed, we shouldn't treat this as a decorated
+                    # function because there aren't any decorators to apply
+                    if not decorators_to_store:
+                        return
+
+                self.funcs_to_decorators[dec.func] = decorators_to_store
         super().visit_decorator(dec)
 
-    def visit_func_def(self, fdef: FuncItem) -> None:
+    def visit_func_def(self, fdef: FuncDef) -> None:
         # TODO: What about overloaded functions?
         self.visit_func(fdef)
+        self.visit_symbol_node(fdef)
 
     def visit_lambda_expr(self, expr: LambdaExpr) -> None:
         self.visit_func(expr)
@@ -90,9 +217,77 @@ class PreBuildVisitor(TraverserVisitor):
         super().visit_func(func)
         self.funcs.pop()
 
+    def _visit_comprehension_with_scope(self, o: GeneratorExpr | DictionaryComprehension) -> None:
+        """Visit a comprehension that contains lambdas.
+
+        Creates a synthetic FuncDef to represent the comprehension's scope,
+        registers it in the function nesting hierarchy, and traverses the
+        comprehension body with it on the stack.
+        """
+        pushed_module = False
+        if not self.funcs:
+            # At module level: push synthetic module FuncDef.
+            if self._module_fitem is None:
+                self._module_fitem = FuncDef("__mypyc_module__")
+                self._module_fitem.line = 1
+            self.funcs.append(self._module_fitem)
+            pushed_module = True
+
+        # Create synthetic FuncDef for the comprehension scope.
+        comprehension_fdef = FuncDef(f"__comprehension_{self._comprehension_counter}__")
+        self._comprehension_counter += 1
+        comprehension_fdef.line = o.line
+        self.comprehension_to_fitem[o] = comprehension_fdef
+
+        # Register as nested within enclosing function.
+        self.encapsulating_funcs.setdefault(self.funcs[-1], []).append(comprehension_fdef)
+        self.nested_funcs[comprehension_fdef] = self.funcs[-1]
+
+        # Push and traverse.
+        self.funcs.append(comprehension_fdef)
+        if isinstance(o, GeneratorExpr):
+            super().visit_generator_expr(o)
+        else:
+            super().visit_dictionary_comprehension(o)
+        self.funcs.pop()
+
+        if pushed_module:
+            self.funcs.pop()
+
+    def visit_generator_expr(self, o: GeneratorExpr) -> None:
+        if _comprehension_has_lambda(o):
+            self._visit_comprehension_with_scope(o)
+        else:
+            super().visit_generator_expr(o)
+
+    def visit_dictionary_comprehension(self, o: DictionaryComprehension) -> None:
+        if _comprehension_has_lambda(o):
+            self._visit_comprehension_with_scope(o)
+        else:
+            super().visit_dictionary_comprehension(o)
+
+    def visit_import(self, imp: Import) -> None:
+        if self._current_import_group is not None:
+            self.module_import_groups[self._current_import_group].append(imp)
+        else:
+            self.module_import_groups[imp] = [imp]
+            self._current_import_group = imp
+        super().visit_import(imp)
+
     def visit_name_expr(self, expr: NameExpr) -> None:
         if isinstance(expr.node, (Var, FuncDef)):
             self.visit_symbol_node(expr.node)
+
+    def visit_str_expr(self, o: StrExpr) -> None:
+        # Handle surrogates before main pass to avoid conflicts with various optimizations
+        # like replacing `ord("<some char>")` with its integer value statically, etc.
+        if o.has_surrogates:
+            self.errors.error(
+                "Surrogate codepoints in string literals not supported, use chr(...) instead",
+                self.current_file.path,
+                o.line,
+            )
+        super().visit_str_expr(o)
 
     def visit_var(self, var: Var) -> None:
         self.visit_symbol_node(var)
@@ -107,7 +302,7 @@ class PreBuildVisitor(TraverserVisitor):
             orig_func = self.symbols_to_funcs[symbol]
             if self.is_parent(self.funcs[-1], orig_func):
                 # The function in which the symbol was previously seen is
-                # nested within the function currently being visited. Thus
+                # nested within the function currently being visited. Thus,
                 # the current function is a better candidate to contain the
                 # declaration.
                 self.symbols_to_funcs[symbol] = self.funcs[-1]
@@ -129,12 +324,10 @@ class PreBuildVisitor(TraverserVisitor):
     def is_parent(self, fitem: FuncItem, child: FuncItem) -> bool:
         # Check if child is nested within fdef (possibly indirectly
         # within multiple nested functions).
-        if child in self.nested_funcs:
-            parent = self.nested_funcs[child]
-            if parent == fitem:
-                return True
-            return self.is_parent(fitem, parent)
-        return False
+        if child not in self.nested_funcs:
+            return False
+        parent = self.nested_funcs[child]
+        return parent == fitem or self.is_parent(fitem, parent)
 
     def add_free_variable(self, symbol: SymbolNode) -> None:
         # Find the function where the symbol was (likely) first declared,

@@ -242,21 +242,6 @@ class M(type):
 <mod.M> -> <m.C>, m
 <mod> -> m
 
-[case testMetaclassDepsDeclared_python2]
-# flags: --py2
-import mod
-class C:
-    __metaclass__ = mod.M
-[file mod.py]
-class M(type):
-    pass
-[out]
-<m.C> -> m.C
-<mod.M.__init__> -> m
-<mod.M.__new__> -> m
-<mod.M> -> <m.C.__metaclass__>, <m.C>, m
-<mod> -> m
-
 [case testMetaclassDepsDeclaredNested]
 import mod
 
@@ -270,47 +255,6 @@ class M(type):
 <m.func> -> m.func
 <mod.M> -> <m.func>, m.func
 <mod> -> m, m.func
-
-[case testMetaclassAttributes_python2]
-# flags: --py2
-from mod import C
-from typing import Type
-def f(arg):
-    # type: (Type[C]) -> None
-    arg.x
-[file mod.py]
-class M(type):
-    x = None  # type: int
-class C:
-    __metaclass__ = M
-[out]
-<mod.C.__init__> -> <m.f>, m.f
-<mod.C.__new__> -> <m.f>, m.f
-<mod.C.x> -> m.f
-<mod.C> -> <m.f>, m, m.f
-<mod.M.x> -> m.f
-<mod> -> m
-
-[case testMetaclassOperatorsDirect_python2]
-# flags: --py2
-from mod import C
-def f():
-    # type: () -> None
-    C + C
-[file mod.py]
-class M(type):
-    def __add__(self, other):
-        # type: (M) -> M
-        pass
-class C:
-    __metaclass__ = M
-[out]
-<mod.C.__init__> -> m.f
-<mod.C.__new__> -> m.f
-<mod.C> -> m, m.f
-<mod.M.__add__> -> m.f
-<mod.M.__radd__> -> m.f
-<mod> -> m
 
 -- Type aliases
 
@@ -874,7 +818,7 @@ class I: pass
 <mod> -> a
 
 [case testAliasDepsTypedDict]
-from mypy_extensions import TypedDict
+from typing import TypedDict
 from mod import I
 A = I
 class P(TypedDict):
@@ -882,6 +826,7 @@ class P(TypedDict):
 [file mod.py]
 class I: pass
 [builtins fixtures/dict.pyi]
+[typing fixtures/typing-typeddict.pyi]
 [out]
 <m.A> -> m
 <m.P> -> m.P
@@ -892,7 +837,7 @@ class I: pass
 
 [case testAliasDepsTypedDictFunctional]
 # __dump_all__
-from mypy_extensions import TypedDict
+from typing import TypedDict
 import a
 P = TypedDict('P', {'x': a.A})
 [file a.py]
@@ -901,6 +846,7 @@ A = I
 [file mod.py]
 class I: pass
 [builtins fixtures/dict.pyi]
+[typing fixtures/typing-typeddict.pyi]
 [out]
 <a.A> -> m
 <a> -> m
@@ -908,8 +854,6 @@ class I: pass
 <mod.I.__new__> -> a
 <mod.I> -> <m.P>, a, mod.I
 <mod> -> a
-<sys.platform> -> sys
-<sys.version_info> -> sys
 
 [case testAliasDepsClassInFunction]
 from mod import I
@@ -963,6 +907,7 @@ def g() -> None:
     A.X
 [file mod.py]
 class B: pass
+[builtins fixtures/tuple.pyi]
 [out]
 <m.A.X> -> m.g
 <m.A> -> <m.f>, m.f, m.g
@@ -1081,3 +1026,14 @@ class P(Protocol):
 <mod.P> -> <m.x>, m, mod.P
 <mod.P[wildcard]> -> <mod.P>
 <mod> -> m
+
+[case testSentinelType]
+from typing_extensions import Sentinel
+
+MISSING = Sentinel("MISSING")
+
+def f(x: MISSING) -> None:
+    pass
+[builtins fixtures/tuple.pyi]
+[out]
+<m.MISSING> -> <m.f>, m, m.f

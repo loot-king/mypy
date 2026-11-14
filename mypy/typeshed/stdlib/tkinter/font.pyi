@@ -1,17 +1,29 @@
+import _tkinter
+import itertools
+import sys
 import tkinter
-from typing import Any, List, Optional, Tuple, TypeVar, Union, overload
-from typing_extensions import Literal, TypedDict
+from typing import Any, ClassVar, Final, Literal, TypeAlias, TypedDict, overload, type_check_only
+from typing_extensions import Unpack
 
-NORMAL: Literal["normal"]
-ROMAN: Literal["roman"]
-BOLD: Literal["bold"]
-ITALIC: Literal["italic"]
+__all__ = ["NORMAL", "ROMAN", "BOLD", "ITALIC", "nametofont", "Font", "families", "names"]
 
-def nametofont(name: str) -> Font: ...
+NORMAL: Final = "normal"
+ROMAN: Final = "roman"
+BOLD: Final = "bold"
+ITALIC: Final = "italic"
 
-# Can contain e.g. nested sequences ('FONT DESCRIPTIONS' in font man page)
-_FontDescription = Union[str, Font, tkinter._TkinterSequence[Any]]
+_FontDescription: TypeAlias = (
+    str  # "Helvetica 12"
+    | Font  # A font object constructed in Python
+    | list[Any]  # ["Helvetica", 12, BOLD]
+    | tuple[str]  # ("Liberation Sans",) needs wrapping in tuple/list to handle spaces
+    # ("Liberation Sans", 12) or ("Liberation Sans", 12, "bold", "italic", "underline")
+    | tuple[str, int, Unpack[tuple[str, ...]]]  # Any number of trailing options is permitted
+    | tuple[str, int, list[str] | tuple[str, ...]]  # Options can also be passed as list/tuple
+    | _tkinter.Tcl_Obj  # A font object constructed in Tcl
+)
 
+@type_check_only
 class _FontDict(TypedDict):
     family: str
     size: int
@@ -20,6 +32,7 @@ class _FontDict(TypedDict):
     underline: bool
     overstrike: bool
 
+@type_check_only
 class _MetricsDict(TypedDict):
     ascent: int
     descent: int
@@ -29,14 +42,17 @@ class _MetricsDict(TypedDict):
 class Font:
     name: str
     delete_font: bool
+    if sys.version_info >= (3, 15):
+        __iter__: ClassVar[None]  # prevent using __getitem__ for iteration
+    counter: ClassVar[itertools.count[int]]  # undocumented
     def __init__(
         self,
         # In tkinter, 'root' refers to tkinter.Tk by convention, but the code
         # actually works with any tkinter widget so we use tkinter.Misc.
-        root: Optional[tkinter.Misc] = ...,
-        font: Optional[_FontDescription] = ...,
-        name: Optional[str] = ...,
-        exists: bool = ...,
+        root: tkinter.Misc | None = None,
+        font: _FontDescription | None = None,
+        name: str | None = None,
+        exists: bool = False,
         *,
         family: str = ...,
         size: int = ...,
@@ -45,7 +61,9 @@ class Font:
         underline: bool = ...,
         overstrike: bool = ...,
     ) -> None: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
     def __setitem__(self, key: str, value: Any) -> None: ...
+
     @overload
     def cget(self, option: Literal["family"]) -> str: ...
     @overload
@@ -58,21 +76,24 @@ class Font:
     def cget(self, option: Literal["underline", "overstrike"]) -> bool: ...
     @overload
     def cget(self, option: str) -> Any: ...
+
     __getitem__ = cget
+
     @overload
-    def actual(self, option: Literal["family"], displayof: Optional[tkinter.Misc] = ...) -> str: ...
+    def actual(self, option: Literal["family"], displayof: tkinter.Misc | None = None) -> str: ...
     @overload
-    def actual(self, option: Literal["size"], displayof: Optional[tkinter.Misc] = ...) -> int: ...
+    def actual(self, option: Literal["size"], displayof: tkinter.Misc | None = None) -> int: ...
     @overload
-    def actual(self, option: Literal["weight"], displayof: Optional[tkinter.Misc] = ...) -> Literal["normal", "bold"]: ...
+    def actual(self, option: Literal["weight"], displayof: tkinter.Misc | None = None) -> Literal["normal", "bold"]: ...
     @overload
-    def actual(self, option: Literal["slant"], displayof: Optional[tkinter.Misc] = ...) -> Literal["roman", "italic"]: ...
+    def actual(self, option: Literal["slant"], displayof: tkinter.Misc | None = None) -> Literal["roman", "italic"]: ...
     @overload
-    def actual(self, option: Literal["underline", "overstrike"], displayof: Optional[tkinter.Misc] = ...) -> bool: ...
+    def actual(self, option: Literal["underline", "overstrike"], displayof: tkinter.Misc | None = None) -> bool: ...
     @overload
-    def actual(self, option: None, displayof: Optional[tkinter.Misc] = ...) -> _FontDict: ...
+    def actual(self, option: None, displayof: tkinter.Misc | None = None) -> _FontDict: ...
     @overload
-    def actual(self, *, displayof: Optional[tkinter.Misc] = ...) -> _FontDict: ...
+    def actual(self, *, displayof: tkinter.Misc | None = None) -> _FontDict: ...
+
     def config(
         self,
         *,
@@ -82,16 +103,21 @@ class Font:
         slant: Literal["roman", "italic"] = ...,
         underline: bool = ...,
         overstrike: bool = ...,
-    ) -> Optional[_FontDict]: ...
+    ) -> _FontDict | None: ...
     configure = config
     def copy(self) -> Font: ...
-    @overload
-    def metrics(self, __option: Literal["ascent", "descent", "linespace"], *, displayof: Optional[tkinter.Misc] = ...) -> int: ...
-    @overload
-    def metrics(self, __option: Literal["fixed"], *, displayof: Optional[tkinter.Misc] = ...) -> bool: ...
-    @overload
-    def metrics(self, *, displayof: Optional[tkinter.Misc] = ...) -> _MetricsDict: ...
-    def measure(self, text: str, displayof: Optional[tkinter.Misc] = ...) -> int: ...
 
-def families(root: Optional[tkinter.Misc] = ..., displayof: Optional[tkinter.Misc] = ...) -> Tuple[str, ...]: ...
-def names(root: Optional[tkinter.Misc] = ...) -> Tuple[str, ...]: ...
+    @overload
+    def metrics(self, option: Literal["ascent", "descent", "linespace"], /, *, displayof: tkinter.Misc | None = ...) -> int: ...
+    @overload
+    def metrics(self, option: Literal["fixed"], /, *, displayof: tkinter.Misc | None = ...) -> bool: ...
+    @overload
+    def metrics(self, *, displayof: tkinter.Misc | None = ...) -> _MetricsDict: ...
+
+    def measure(self, text: str, displayof: tkinter.Misc | None = None) -> int: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __del__(self) -> None: ...
+
+def families(root: tkinter.Misc | None = None, displayof: tkinter.Misc | None = None) -> tuple[str, ...]: ...
+def names(root: tkinter.Misc | None = None) -> tuple[str, ...]: ...
+def nametofont(name: str, root: tkinter.Misc | None = None) -> Font: ...

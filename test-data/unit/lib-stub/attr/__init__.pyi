@@ -1,4 +1,4 @@
-from typing import TypeVar, overload, Callable, Any, Type, Optional, Union, Sequence, Mapping
+from typing import TypeVar, overload, Callable, Any, Type, Optional, Union, Sequence, Mapping, Generic
 
 _T = TypeVar('_T')
 _C = TypeVar('_C', bound=type)
@@ -94,6 +94,7 @@ def attrs(maybe_cls: _C,
           cache_hash: bool = ...,
           eq: Optional[bool] = ...,
           order: Optional[bool] = ...,
+          match_args: bool = ...,
           ) -> _C: ...
 @overload
 def attrs(maybe_cls: None = ...,
@@ -112,8 +113,11 @@ def attrs(maybe_cls: None = ...,
           cache_hash: bool = ...,
           eq: Optional[bool] = ...,
           order: Optional[bool] = ...,
+          match_args: bool = ...,
           ) -> Callable[[_C], _C]: ...
 
+
+class Attribute(Generic[_T]): pass
 
 # aliases
 s = attributes = attrs
@@ -127,6 +131,7 @@ def define(
     *,
     these: Optional[Mapping[str, Any]] = ...,
     repr: bool = ...,
+    unsafe_hash: Optional[bool]=None,
     hash: Optional[bool] = ...,
     init: bool = ...,
     slots: bool = ...,
@@ -149,6 +154,7 @@ def define(
     *,
     these: Optional[Mapping[str, Any]] = ...,
     repr: bool = ...,
+    unsafe_hash: Optional[bool]=None,
     hash: Optional[bool] = ...,
     init: bool = ...,
     slots: bool = ...,
@@ -240,3 +246,8 @@ def field(
     order: Optional[bool] = ...,
     on_setattr: Optional[object] = ...,
 ) -> Any: ...
+
+def evolve(inst: _T, **changes: Any) -> _T: ...
+def assoc(inst: _T, **changes: Any) -> _T: ...
+
+def fields(cls: type) -> Any: ...

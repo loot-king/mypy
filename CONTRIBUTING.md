@@ -1,73 +1,173 @@
-Contributing to Mypy
-====================
+# Contributing to Mypy
 
 Welcome!  Mypy is a community project that aims to work for a wide
-range of Python users and Python codebases.  If you're trying Mypy on
+range of Python users and Python codebases.  If you're trying mypy on
 your Python code, your experience and what you can contribute are
 important to the project's success.
 
-
-Getting started, building, and testing
---------------------------------------
-
-If you haven't already, take a look at the project's
-[README.md file](README.md)
-and the [Mypy documentation](https://mypy.readthedocs.io/en/latest/),
-and try adding type annotations to your file and type-checking it with Mypy.
-
-
-Discussion
-----------
-
-If you've run into behavior in Mypy you don't understand, or you're
-having trouble working out a good way to apply it to your code, or
-you've found a bug or would like a feature it doesn't have, we want to
-hear from you!
-
-Our main forum for discussion is the project's [GitHub issue
-tracker](https://github.com/python/mypy/issues).  This is the right
-place to start a discussion of any of the above or most any other
-topic concerning the project.
-
-For less formal discussion we have a chat room on
-[gitter.im](https://gitter.im/python/typing).  Some Mypy core developers
-are almost always present; feel free to find us there and we're happy
-to chat.  Substantive technical discussion will be directed to the
-issue tracker.
-
-(We also have an IRC channel, `#python-mypy` on irc.freenode.net.
-This is lightly used, we have mostly switched to the gitter room
-mentioned above.)
-
-#### Code of Conduct
+## Code of Conduct
 
 Everyone participating in the Mypy community, and in particular in our
-issue tracker, pull requests, and IRC channel, is expected to treat
+issue tracker, pull requests, and chat, is expected to treat
 other people with respect and more generally to follow the guidelines
-articulated in the [Python Community Code of
-Conduct](https://www.python.org/psf/codeofconduct/).
+articulated in the [Python Community Code of Conduct](https://www.python.org/psf/codeofconduct/).
 
-First Time Contributors
------------------------
+## Getting started with development
 
-Mypy appreciates your contribution! If you are interested in helping improve
-mypy, there are several ways to get started:
+### Setup
 
-* Contributing to [typeshed](https://github.com/python/typeshed/issues) is a great way to
-become familiar with Python's type syntax.
-* Work on [documentation issues](https://github.com/python/mypy/labels/documentation).
-* Ask on [the chat](https://gitter.im/python/typing) or on
-[the issue tracker](https://github.com/python/mypy/issues) about good beginner issues.
+#### (1) Fork the mypy repository
 
-Submitting Changes
-------------------
+Within GitHub, navigate to <https://github.com/python/mypy> and fork the repository.
+
+#### (2) Clone the mypy repository and enter into it
+
+```bash
+git clone git@github.com:<your_username>/mypy.git
+cd mypy
+```
+
+#### (3) Create then activate a virtual environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+```bash
+# For Windows use
+python -m venv venv
+. venv/Scripts/activate
+
+# For more details, see https://docs.python.org/3/library/venv.html#creating-virtual-environments
+```
+
+#### (4) Install the test requirements and the project
+
+```bash
+python -m pip install -r dev-requirements.txt
+python -m pip install -e .
+hash -r  # This resets shell PATH cache, not necessary on Windows
+```
+
+> **Note**
+> You'll need Python 3.10 or higher to install all requirements listed in
+> dev-requirements.txt
+
+### Running tests
+
+Running the full test suite can take a while, and usually isn't necessary when
+preparing a PR. Once you file a PR, the full test suite will run on GitHub.
+You'll then be able to see any test failures, and make any necessary changes to
+your PR.
+
+However, if you wish to do so, you can run the full test suite
+like this:
+
+```bash
+python runtests.py
+```
+
+Some useful commands for running specific tests include:
+
+```bash
+# Use mypy to check mypy's own code
+python runtests.py self
+# or equivalently:
+python -m mypy --config-file mypy_self_check.ini -p mypy
+
+# Run a single test from the test suite (uses pytest substring expression matching)
+python runtests.py test_name
+# or equivalently:
+pytest -n0 -k test_name
+
+# Run all test cases in the "test-data/unit/check-dataclasses.test" file
+python runtests.py check-dataclasses.test
+# or equivalently:
+pytest mypy/test/testcheck.py::TypeCheckSuite::check-dataclasses.test
+
+# Run the formatters and linters
+python runtests.py lint
+```
+
+For an in-depth guide on running and writing tests,
+see [the README in the test-data directory](test-data/unit/README.md).
+
+#### Using `tox`
+
+You can also use [`tox`](https://tox.wiki/en/latest/) to run tests and other commands.
+`tox` handles setting up test environments for you.
+
+```bash
+# Run tests
+tox run -e py
+
+# Run tests using some specific Python version
+tox run -e py311
+
+# Run a specific command
+tox run -e lint
+
+# Run a single test from the test suite
+tox run -e py -- -n0 -k 'test_name'
+
+# Run all test cases in the "test-data/unit/check-dataclasses.test" file using
+# Python 3.11 specifically
+tox run -e py311 -- mypy/test/testcheck.py::TypeCheckSuite::check-dataclasses.test
+
+# Set up a development environment with all the project libraries and run a command
+tox -e dev -- mypy --verbose test_case.py
+tox -e dev --override testenv:dev.allowlist_externals+=env -- env  # inspect the environment
+```
+
+If you don't already have `tox` installed, you can use a virtual environment as
+described above to install `tox` via `pip` (e.g., ``python -m pip install tox``).
+
+## LLM-assisted contributions
+
+In general, mypy takes a neutral stance on using various LLM code assistants to
+make contributions. LLMs are just another tool, and contributors bear full
+responsibility for the code they are submitting. Disclosing the use of LLMs in
+pull request description is recommended, but not required.
+
+However, we discourage use of LLMs by *new* contributors. We are interested in
+growing long-term contributors who have good understanding of mypy code.
+Pull requests from new contributors that are mostly generated by LLMs
+with little human input will be closed.
+
+## First time contributors
+
+If you're looking for things to help with, browse our [issue tracker](https://github.com/python/mypy/issues)!
+
+In particular, look for:
+
+- [good first issues](https://github.com/python/mypy/labels/good-first-issue)
+- [good second issues](https://github.com/python/mypy/labels/good-second-issue)
+- [documentation issues](https://github.com/python/mypy/labels/documentation)
+
+You do not need to ask for permission to work on any of these issues.
+Just fix the issue yourself, [try to add a unit test](#running-tests) and
+[open a pull request](#submitting-changes).
+
+To get help fixing a specific issue, it's often best to comment on the issue
+itself. You're much more likely to get help if you provide details about what
+you've tried and where you've looked (maintainers tend to help those who help
+themselves). [gitter](https://gitter.im/python/typing) can also be a good place
+to ask for help.
+
+Interactive debuggers like `pdb` and `ipdb` are really useful for getting
+started with the mypy codebase. This is a
+[useful tutorial](https://realpython.com/python-debugging-pdb/).
+
+It's also extremely easy to get started contributing to our sister project
+[typeshed](https://github.com/python/typeshed/issues) that provides type stubs
+for libraries. This is a great way to become familiar with type syntax.
+
+## Submitting changes
 
 Even more excellent than a good bug report is a fix for a bug, or the
-implementation of a much-needed new feature. (*)  We'd love to have
+implementation of a much-needed new feature. We'd love to have
 your contributions.
-
-(*) If your new feature will be a lot of work, we recommend talking to
-    us early -- see below.
 
 We use the usual GitHub pull-request flow, which may be familiar to
 you if you've contributed to other projects on GitHub.  For the mechanics,
@@ -76,17 +176,8 @@ or [GitHub's own documentation](https://help.github.com/articles/using-pull-requ
 
 Anyone interested in Mypy may review your code.  One of the Mypy core
 developers will merge your pull request when they think it's ready.
-For every pull request, we aim to promptly either merge it or say why
-it's not yet ready; if you go a few days without a reply, please feel
-free to ping the thread by adding a new comment.
 
-For a list of mypy core developers, see the file [CREDITS](CREDITS).
-
-
-Preparing Changes
------------------
-
-Before you begin: if your change will be a significant amount of work
+If your change will be a significant amount of work
 to write, we highly recommend starting by opening an issue laying out
 what you want to do.  That lets a conversation happen early in case
 other contributors disagree with what you'd like to do or have ideas
@@ -100,11 +191,6 @@ advice about good pull requests for open-source projects applies; we
 have [our own writeup](https://github.com/python/mypy/wiki/Good-Pull-Request)
 of this advice.
 
-See also our [coding conventions](https://github.com/python/mypy/wiki/Code-Conventions) --
-which consist mainly of a reference to
-[PEP 8](https://www.python.org/dev/peps/pep-0008/) -- for the code you
-put in the pull request.
-
 Also, do not squash your commits after you have submitted a pull request, as this
 erases context during review. We will squash commits when the pull request is merged.
 
@@ -112,78 +198,27 @@ You may also find other pages in the
 [Mypy developer guide](https://github.com/python/mypy/wiki/Developer-Guides)
 helpful in developing your change.
 
-
-Core developer guidelines
--------------------------
+## Core developer guidelines
 
 Core developers should follow these rules when processing pull requests:
 
-* Always wait for tests to pass before merging PRs.
-* Use "[Squash and merge](https://github.com/blog/2141-squash-your-commits)"
+- Always wait for tests to pass before merging PRs.
+- Use "[Squash and merge](https://github.com/blog/2141-squash-your-commits)"
   to merge PRs.
-* Delete branches for merged PRs (by core devs pushing to the main repo).
-* Edit the final commit message before merging to conform to the following
+- Delete branches for merged PRs (by core devs pushing to the main repo).
+- Edit the final commit message before merging to conform to the following
   style (we wish to have a clean `git log` output):
-  * When merging a multi-commit PR make sure that the commit message doesn't
+  - When merging a multi-commit PR make sure that the commit message doesn't
     contain the local history from the committer and the review history from
     the PR. Edit the message to only describe the end state of the PR.
-  * Make sure there is a *single* newline at the end of the commit message.
+  - Make sure there is a *single* newline at the end of the commit message.
     This way there is a single empty line between commits in `git log`
     output.
-  * Split lines as needed so that the maximum line length of the commit
+  - Split lines as needed so that the maximum line length of the commit
     message is under 80 characters, including the subject line.
-  * Capitalize the subject and each paragraph.
-  * Make sure that the subject of the commit message has no trailing dot.
-  * Use the imperative mood in the subject line (e.g. "Fix typo in README").
-  * If the PR fixes an issue, make sure something like "Fixes #xxx." occurs
+  - Capitalize the subject and each paragraph.
+  - Make sure that the subject of the commit message has no trailing dot.
+  - Use the imperative mood in the subject line (e.g. "Fix typo in README").
+  - If the PR fixes an issue, make sure something like "Fixes #xxx." occurs
     in the body of the message (not in the subject).
-  * Use Markdown for formatting.
-
-
-Issue-tracker conventions
--------------------------
-
-We aim to reply to all new issues promptly.  We'll assign a milestone
-to help us track which issues we intend to get to when, and may apply
-labels to carry some other information.  Here's what our milestones
-and labels mean.
-
-### Task priority and sizing
-
-We use GitHub "labels" ([see our
-list](https://github.com/python/mypy/labels)) to roughly order what we
-want to do soon and less soon.  There's two dimensions taken into
-account: **priority** (does it matter to our users) and **size** (how
-long will it take to complete).
-
-Bugs that aren't a huge deal but do matter to users and don't seem
-like a lot of work to fix generally will be dealt with sooner; things
-that will take longer may go further out.
-
-We are trying to keep the backlog at a manageable size, an issue that is
-unlikely to be acted upon in foreseeable future is going to be
-respectfully closed.  This doesn't mean the issue is not important, but
-rather reflects the limits of the team.
-
-The **question** label is for issue threads where a user is asking a
-question but it isn't yet clear that it represents something to actually
-change.  We use the issue tracker as the preferred venue for such
-questions, even when they aren't literally issues, to keep down the
-number of distinct discussion venues anyone needs to track.  These might
-evolve into a bug or feature request.
-
-Issues **without a priority or size** haven't been triaged.  We aim to
-triage all new issues promptly, but there are some issues from previous
-years that we haven't yet re-reviewed since adopting these conventions.
-
-### Other labels
-
-* **needs discussion**: This issue needs agreement on some kind of
-  design before it makes sense to implement it, and it either doesn't
-  yet have a design or doesn't yet have agreement on one.
-* **feature**, **bug**, **crash**, **refactoring**, **documentation**:
-  These classify the user-facing impact of the change.  Specifically
-  "refactoring" means there should be no user-facing effect.
-* **topic-** labels group issues touching a similar aspect of the
-  project, for example PEP 484 compatibility, a specific command-line
-  option or dependency.
+  - Use Markdown for formatting.

@@ -13,6 +13,11 @@ Construct list with specific items:
 
 * ``[item0, ..., itemN]``
 
+Construct empty list:
+
+* ``[]``
+* ``list()``
+
 Construct list from iterable:
 
 * ``list(x: Iterable)``
@@ -27,7 +32,8 @@ Operators
 
 * ``lst[n]`` (get item by integer index)
 * ``lst[n:m]``, ``lst[n:]``, ``lst[:m]``, ``lst[:]`` (slicing)
-* ``lst * n``, ``n * lst``
+* ``lst1 + lst2``, ``lst += iter``
+* ``lst * n``, ``n * lst``, ``lst *= n``
 * ``obj in lst``
 
 Statements

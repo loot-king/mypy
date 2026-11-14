@@ -1,73 +1,65 @@
 import sys
-from typing import Any, AnyStr, Callable, Dict, Generic, Iterable, List, Optional, Sequence, Text, Tuple, Union
+from _typeshed import GenericPath, StrOrBytesPath
+from collections.abc import Callable, Iterable, Sequence
+from types import GenericAlias
+from typing import Any, AnyStr, Final, Generic, Literal
 
-if sys.version_info >= (3, 6):
-    from os import PathLike
+__all__ = ["clear_cache", "cmp", "dircmp", "cmpfiles", "DEFAULT_IGNORES"]
 
-if sys.version_info >= (3, 9):
-    from types import GenericAlias
+DEFAULT_IGNORES: Final[list[str]]
+BUFSIZE: Final = 8192
 
-DEFAULT_IGNORES: List[str]
-
-if sys.version_info >= (3, 6):
-    def cmp(
-        f1: Union[bytes, Text, PathLike[AnyStr]], f2: Union[bytes, Text, PathLike[AnyStr]], shallow: Union[int, bool] = ...
-    ) -> bool: ...
-    def cmpfiles(
-        a: Union[AnyStr, PathLike[AnyStr]],
-        b: Union[AnyStr, PathLike[AnyStr]],
-        common: Iterable[AnyStr],
-        shallow: Union[int, bool] = ...,
-    ) -> Tuple[List[AnyStr], List[AnyStr], List[AnyStr]]: ...
-
-else:
-    def cmp(f1: Union[bytes, Text], f2: Union[bytes, Text], shallow: Union[int, bool] = ...) -> bool: ...
-    def cmpfiles(
-        a: AnyStr, b: AnyStr, common: Iterable[AnyStr], shallow: Union[int, bool] = ...
-    ) -> Tuple[List[AnyStr], List[AnyStr], List[AnyStr]]: ...
+def cmp(f1: StrOrBytesPath, f2: StrOrBytesPath, shallow: bool | Literal[0, 1] = True) -> bool: ...
+def cmpfiles(
+    a: GenericPath[AnyStr], b: GenericPath[AnyStr], common: Iterable[GenericPath[AnyStr]], shallow: bool | Literal[0, 1] = True
+) -> tuple[list[AnyStr], list[AnyStr], list[AnyStr]]: ...
 
 class dircmp(Generic[AnyStr]):
-    if sys.version_info >= (3, 6):
+    if sys.version_info >= (3, 13):
         def __init__(
             self,
-            a: Union[AnyStr, PathLike[AnyStr]],
-            b: Union[AnyStr, PathLike[AnyStr]],
-            ignore: Optional[Sequence[AnyStr]] = ...,
-            hide: Optional[Sequence[AnyStr]] = ...,
+            a: GenericPath[AnyStr],
+            b: GenericPath[AnyStr],
+            ignore: Sequence[AnyStr] | None = None,
+            hide: Sequence[AnyStr] | None = None,
+            *,
+            shallow: bool = True,
         ) -> None: ...
     else:
         def __init__(
-            self, a: AnyStr, b: AnyStr, ignore: Optional[Sequence[AnyStr]] = ..., hide: Optional[Sequence[AnyStr]] = ...
+            self,
+            a: GenericPath[AnyStr],
+            b: GenericPath[AnyStr],
+            ignore: Sequence[AnyStr] | None = None,
+            hide: Sequence[AnyStr] | None = None,
         ) -> None: ...
-    left: AnyStr
-    right: AnyStr
+    left: GenericPath[AnyStr]
+    right: GenericPath[AnyStr]
     hide: Sequence[AnyStr]
     ignore: Sequence[AnyStr]
     # These properties are created at runtime by __getattr__
-    subdirs: Dict[AnyStr, dircmp[AnyStr]]
-    same_files: List[AnyStr]
-    diff_files: List[AnyStr]
-    funny_files: List[AnyStr]
-    common_dirs: List[AnyStr]
-    common_files: List[AnyStr]
-    common_funny: List[AnyStr]
-    common: List[AnyStr]
-    left_only: List[AnyStr]
-    right_only: List[AnyStr]
-    left_list: List[AnyStr]
-    right_list: List[AnyStr]
+    subdirs: dict[AnyStr, dircmp[AnyStr]]
+    same_files: list[AnyStr]
+    diff_files: list[AnyStr]
+    funny_files: list[AnyStr]
+    common_dirs: list[AnyStr]
+    common_files: list[AnyStr]
+    common_funny: list[AnyStr]
+    common: list[AnyStr]
+    left_only: list[AnyStr]
+    right_only: list[AnyStr]
+    left_list: list[AnyStr]
+    right_list: list[AnyStr]
     def report(self) -> None: ...
     def report_partial_closure(self) -> None: ...
     def report_full_closure(self) -> None: ...
-    methodmap: Dict[str, Callable[[], None]]
+    methodmap: dict[str, Callable[[], None]]
     def phase0(self) -> None: ...
     def phase1(self) -> None: ...
     def phase2(self) -> None: ...
     def phase3(self) -> None: ...
     def phase4(self) -> None: ...
     def phase4_closure(self) -> None: ...
-    if sys.version_info >= (3, 9):
-        def __class_getitem__(cls, item: Any) -> GenericAlias: ...
+    def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
-if sys.version_info >= (3,):
-    def clear_cache() -> None: ...
+def clear_cache() -> None: ...

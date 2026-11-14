@@ -1,37 +1,47 @@
 """Simple type inference for decorated functions during semantic analysis."""
 
-from typing import Optional
+from __future__ import annotations
 
-from mypy.nodes import Expression, Decorator, CallExpr, FuncDef, RefExpr, Var, ARG_POS
-from mypy.types import (
-    Type, CallableType, AnyType, TypeOfAny, TypeVarType, ProperType, get_proper_type
-)
+from mypy.nodes import ARG_POS, CallExpr, Decorator, Expression, FuncDef, RefExpr, Var
+from mypy.semanal_shared import SemanticAnalyzerInterface, set_callable_name
 from mypy.typeops import function_type
+from mypy.types import (
+    AnyType,
+    CallableType,
+    ProperType,
+    Type,
+    TypeOfAny,
+    TypeVarType,
+    get_proper_type,
+)
 from mypy.typevars import has_no_typevars
-from mypy.semanal_shared import SemanticAnalyzerInterface
 
 
-def infer_decorator_signature_if_simple(dec: Decorator,
-                                        analyzer: SemanticAnalyzerInterface) -> None:
+def infer_decorator_signature_if_simple(
+    dec: Decorator, analyzer: SemanticAnalyzerInterface
+) -> None:
     """Try to infer the type of the decorated function.
 
     This lets us resolve additional references to decorated functions
-    during type checking. Otherwise the type might not be available
+    during type checking. Otherwise, the type might not be available
     when we need it, since module top levels can't be deferred.
 
     This basically uses a simple special-purpose type inference
-    engine just for decorators.
+    engine just for decorators. Logic here should be kept in sync with
+    visit_decorator() in mypy/checker.py.
     """
     if dec.var.is_property:
         # Decorators are expected to have a callable type (it's a little odd).
+        # TODO: this may result in wrong type if @property is applied to decorated method.
         if dec.func.type is None:
             dec.var.type = CallableType(
                 [AnyType(TypeOfAny.special_form)],
                 [ARG_POS],
                 [None],
                 AnyType(TypeOfAny.special_form),
-                analyzer.named_type('__builtins__.function'),
-                name=dec.var.name)
+                analyzer.named_type("builtins.function"),
+                name=dec.var.name,
+            )
         elif isinstance(dec.func.type, CallableType):
             dec.var.type = dec.func.type
         return
@@ -39,6 +49,8 @@ def infer_decorator_signature_if_simple(dec: Decorator,
     for expr in dec.decorators:
         preserve_type = False
         if isinstance(expr, RefExpr) and isinstance(expr.node, FuncDef):
+            if expr.fullname == "typing.no_type_check":
+                return
             if expr.node.type and is_identity_signature(expr.node.type):
                 preserve_type = True
         if not preserve_type:
@@ -47,7 +59,8 @@ def infer_decorator_signature_if_simple(dec: Decorator,
     if decorator_preserves_type:
         # No non-identity decorators left. We can trivially infer the type
         # of the function here.
-        dec.var.type = function_type(dec.func, analyzer.named_type('__builtins__.function'))
+        sig = function_type(dec.func, analyzer.named_type("builtins.function"))
+        dec.var.type = set_callable_name(sig, dec.func)
     if dec.decorators:
         return_type = calculate_return_type(dec.decorators[0])
         if return_type and isinstance(return_type, AnyType):
@@ -58,9 +71,11 @@ def infer_decorator_signature_if_simple(dec: Decorator,
         if sig:
             # The outermost decorator always returns the same kind of function,
             # so we know that this is the type of the decorated function.
-            orig_sig = function_type(dec.func, analyzer.named_type('__builtins__.function'))
-            sig.name = orig_sig.items()[0].name
+            orig_sig = function_type(dec.func, analyzer.named_type("builtins.function"))
+            sig.name = orig_sig.items[0].name
             dec.var.type = sig
+            if isinstance(sig, CallableType):
+                sig.definition = dec
 
 
 def is_identity_signature(sig: Type) -> bool:
@@ -72,7 +87,7 @@ def is_identity_signature(sig: Type) -> bool:
     return False
 
 
-def calculate_return_type(expr: Expression) -> Optional[ProperType]:
+def calculate_return_type(expr: Expression) -> ProperType | None:
     """Return the return type if we can calculate it.
 
     This only uses information available during semantic analysis so this
@@ -96,7 +111,7 @@ def calculate_return_type(expr: Expression) -> Optional[ProperType]:
     return None
 
 
-def find_fixed_callable_return(expr: Expression) -> Optional[CallableType]:
+def find_fixed_callable_return(expr: Expression) -> CallableType | None:
     """Return the return type, if expression refers to a callable that returns a callable.
 
     But only do this if the return type has no type variables. Return None otherwise.

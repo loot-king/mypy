@@ -1,124 +1,126 @@
 import sys
+from _blake2 import blake2b as blake2b, blake2s as blake2s
+from _hashlib import (
+    HASH,
+    HASHXOF,
+    _FixedDigestName,
+    _HashObject,
+    _HashObjectWithOptionalLength,
+    _XofDigestName,
+    openssl_md5 as md5,
+    openssl_sha1 as sha1,
+    openssl_sha3_224 as sha3_224,
+    openssl_sha3_256 as sha3_256,
+    openssl_sha3_384 as sha3_384,
+    openssl_sha3_512 as sha3_512,
+    openssl_sha224 as sha224,
+    openssl_sha256 as sha256,
+    openssl_sha384 as sha384,
+    openssl_sha512 as sha512,
+    openssl_shake_128 as shake_128,
+    openssl_shake_256 as shake_256,
+    pbkdf2_hmac as pbkdf2_hmac,
+    scrypt as scrypt,
+)
 from _typeshed import ReadableBuffer
-from typing import AbstractSet, Optional
+from collections.abc import Callable, Set as AbstractSet
+from typing import Protocol, TypeVar, overload, type_check_only
 
-class _Hash(object):
-    digest_size: int
-    block_size: int
+_HashT = TypeVar("_HashT", bound=_HashObject)
 
-    # [Python documentation note] Changed in version 3.4: The name attribute has
-    # been present in CPython since its inception, but until Python 3.4 was not
-    # formally specified, so may not exist on some platforms
-    name: str
-    def __init__(self, data: ReadableBuffer = ...) -> None: ...
-    def copy(self) -> _Hash: ...
-    def digest(self) -> bytes: ...
-    def hexdigest(self) -> str: ...
-    def update(self, __data: ReadableBuffer) -> None: ...
-
-if sys.version_info >= (3, 9):
-    def new(name: str, data: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-    def md5(string: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-    def sha1(string: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-    def sha224(string: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-    def sha256(string: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-    def sha384(string: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-    def sha512(string: ReadableBuffer = ..., *, usedforsecurity: bool = ...) -> _Hash: ...
-
-elif sys.version_info >= (3, 8):
-    def new(name: str, data: ReadableBuffer = ...) -> _Hash: ...
-    def md5(string: ReadableBuffer = ...) -> _Hash: ...
-    def sha1(string: ReadableBuffer = ...) -> _Hash: ...
-    def sha224(string: ReadableBuffer = ...) -> _Hash: ...
-    def sha256(string: ReadableBuffer = ...) -> _Hash: ...
-    def sha384(string: ReadableBuffer = ...) -> _Hash: ...
-    def sha512(string: ReadableBuffer = ...) -> _Hash: ...
-
+if sys.version_info >= (3, 15):
+    __all__ = (
+        "md5",
+        "sha1",
+        "sha224",
+        "sha256",
+        "sha384",
+        "sha512",
+        "blake2b",
+        "blake2s",
+        "sha3_224",
+        "sha3_256",
+        "sha3_384",
+        "sha3_512",
+        "shake_128",
+        "shake_256",
+        "new",
+        "algorithms_guaranteed",
+        "algorithms_available",
+        "file_digest",
+        "pbkdf2_hmac",
+        "scrypt",
+    )
+elif sys.version_info >= (3, 11):
+    __all__ = (
+        "md5",
+        "sha1",
+        "sha224",
+        "sha256",
+        "sha384",
+        "sha512",
+        "blake2b",
+        "blake2s",
+        "sha3_224",
+        "sha3_256",
+        "sha3_384",
+        "sha3_512",
+        "shake_128",
+        "shake_256",
+        "new",
+        "algorithms_guaranteed",
+        "algorithms_available",
+        "file_digest",
+        "pbkdf2_hmac",
+    )
 else:
-    def new(name: str, data: ReadableBuffer = ...) -> _Hash: ...
-    def md5(__string: ReadableBuffer = ...) -> _Hash: ...
-    def sha1(__string: ReadableBuffer = ...) -> _Hash: ...
-    def sha224(__string: ReadableBuffer = ...) -> _Hash: ...
-    def sha256(__string: ReadableBuffer = ...) -> _Hash: ...
-    def sha384(__string: ReadableBuffer = ...) -> _Hash: ...
-    def sha512(__string: ReadableBuffer = ...) -> _Hash: ...
+    __all__ = (
+        "md5",
+        "sha1",
+        "sha224",
+        "sha256",
+        "sha384",
+        "sha512",
+        "blake2b",
+        "blake2s",
+        "sha3_224",
+        "sha3_256",
+        "sha3_384",
+        "sha3_512",
+        "shake_128",
+        "shake_256",
+        "new",
+        "algorithms_guaranteed",
+        "algorithms_available",
+        "pbkdf2_hmac",
+    )
+
+@overload
+def new(name: _XofDigestName, data: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASHXOF: ...
+@overload
+def new(name: _FixedDigestName, data: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> HASH: ...
+@overload
+def new(name: str, data: ReadableBuffer = b"", *, usedforsecurity: bool = True) -> _HashObjectWithOptionalLength: ...
 
 algorithms_guaranteed: AbstractSet[str]
 algorithms_available: AbstractSet[str]
 
-def pbkdf2_hmac(
-    hash_name: str, password: ReadableBuffer, salt: ReadableBuffer, iterations: int, dklen: Optional[int] = ...
-) -> bytes: ...
+if sys.version_info >= (3, 11):
+    @type_check_only
+    class _BytesIOLike(Protocol):
+        def getbuffer(self) -> ReadableBuffer: ...
 
-class _VarLenHash(object):
-    digest_size: int
-    block_size: int
-    name: str
-    def __init__(self, data: ReadableBuffer = ...) -> None: ...
-    def copy(self) -> _VarLenHash: ...
-    def digest(self, __length: int) -> bytes: ...
-    def hexdigest(self, __length: int) -> str: ...
-    def update(self, __data: ReadableBuffer) -> None: ...
+    @type_check_only
+    class _FileDigestFileObj(Protocol):
+        def readinto(self, buf: bytearray, /) -> int: ...
+        def readable(self) -> bool: ...
 
-sha3_224 = _Hash
-sha3_256 = _Hash
-sha3_384 = _Hash
-sha3_512 = _Hash
-shake_128 = _VarLenHash
-shake_256 = _VarLenHash
+    @overload
+    def file_digest(fileobj: _BytesIOLike | _FileDigestFileObj, digest: str, /, *, _bufsize: int = 262144) -> HASH: ...
+    @overload
+    def file_digest(
+        fileobj: _BytesIOLike | _FileDigestFileObj, digest: Callable[[], _HashT], /, *, _bufsize: int = 262144
+    ) -> _HashT: ...
 
-def scrypt(
-    password: ReadableBuffer,
-    *,
-    salt: Optional[ReadableBuffer] = ...,
-    n: Optional[int] = ...,
-    r: Optional[int] = ...,
-    p: Optional[int] = ...,
-    maxmem: int = ...,
-    dklen: int = ...,
-) -> bytes: ...
-
-class _BlakeHash(_Hash):
-    MAX_DIGEST_SIZE: int
-    MAX_KEY_SIZE: int
-    PERSON_SIZE: int
-    SALT_SIZE: int
-
-    if sys.version_info >= (3, 9):
-        def __init__(
-            self,
-            __data: ReadableBuffer = ...,
-            *,
-            digest_size: int = ...,
-            key: ReadableBuffer = ...,
-            salt: ReadableBuffer = ...,
-            person: ReadableBuffer = ...,
-            fanout: int = ...,
-            depth: int = ...,
-            leaf_size: int = ...,
-            node_offset: int = ...,
-            node_depth: int = ...,
-            inner_size: int = ...,
-            last_node: bool = ...,
-            usedforsecurity: bool = ...,
-        ) -> None: ...
-    else:
-        def __init__(
-            self,
-            __data: ReadableBuffer = ...,
-            *,
-            digest_size: int = ...,
-            key: ReadableBuffer = ...,
-            salt: ReadableBuffer = ...,
-            person: ReadableBuffer = ...,
-            fanout: int = ...,
-            depth: int = ...,
-            leaf_size: int = ...,
-            node_offset: int = ...,
-            node_depth: int = ...,
-            inner_size: int = ...,
-            last_node: bool = ...,
-        ) -> None: ...
-
-blake2b = _BlakeHash
-blake2s = _BlakeHash
+# Legacy typing-only alias
+_Hash = HASH

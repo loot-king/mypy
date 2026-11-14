@@ -70,17 +70,54 @@ class C:  # Forgot to add type params here
 c = C(t=3)  # type: C[int]  # E: "C" expects no type arguments, but 1 given
 
 [case testBreakOutsideLoop]
-break # E: 'break' outside loop
+break # E: "break" outside loop
 
 [case testContinueOutsideLoop]
-continue # E: 'continue' outside loop
+continue # E: "continue" outside loop
 
 [case testYieldOutsideFunction]
-yield # E: 'yield' outside function
-
-[case testYieldFromOutsideFunction]
+yield # E: "yield" outside function
 x = 1
-yield from x # E: 'yield from' outside function
+yield from x # E: "yield from" outside function
+[(yield 1) for _ in x] # E: "yield" inside comprehension or generator expression
+{(yield 1) for _ in x} # E: "yield" inside comprehension or generator expression
+{i: (yield 1) for i in x} # E: "yield" inside comprehension or generator expression
+((yield 1) for _ in x) # E: "yield" inside comprehension or generator expression
+y = 1
+[(yield from x) for _ in y] # E: "yield from" inside comprehension or generator expression
+{(yield from x) for _ in y} # E: "yield from" inside comprehension or generator expression
+{i: (yield from x) for i in y} # E: "yield from" inside comprehension or generator expression
+((yield from x) for _ in y) # E: "yield from" inside comprehension or generator expression
+def f(y):
+    [x for x in (yield y)]
+    {x for x in (yield y)}
+    {x: x for x in (yield y)}
+    (x for x in (yield y))
+    [x for x in (yield from y)]
+    {x for x in (yield from y)}
+    {x: x for x in (yield from y)}
+    (x for x in (yield from y))
+def g(y):
+    [(yield 1) for _ in y] # E: "yield" inside comprehension or generator expression
+    {(yield 1) for _ in y} # E: "yield" inside comprehension or generator expression
+    {i: (yield 1) for i in y} # E: "yield" inside comprehension or generator expression
+    ((yield 1) for _ in y) # E: "yield" inside comprehension or generator expression
+    lst = 1
+    [(yield from lst) for _ in y] # E: "yield from" inside comprehension or generator expression
+    {(yield from lst) for _ in y} # E: "yield from" inside comprehension or generator expression
+    {i: (yield from lst) for i in y} # E: "yield from" inside comprehension or generator expression
+    ((yield from lst) for _ in y) # E: "yield from" inside comprehension or generator expression
+def h(y):
+    lst = 1
+    [x for x in lst if (yield y)] # E: "yield" inside comprehension or generator expression
+    {x for x in lst if (yield y)} # E: "yield" inside comprehension or generator expression
+    {x: x for x in lst if (yield y)} # E: "yield" inside comprehension or generator expression
+    (x for x in lst if (yield y)) # E: "yield" inside comprehension or generator expression
+    lst = 1
+    [x for x in lst if (yield from y)] # E: "yield from" inside comprehension or generator expression
+    {x for x in lst if (yield from y)} # E: "yield from" inside comprehension or generator expression
+    {x: x for x in lst if (yield from y)} # E: "yield from" inside comprehension or generator expression
+    (x for x in lst if (yield from y)) # E: "yield from" inside comprehension or generator expression
 
 [case testImportFuncDup]
 
@@ -100,8 +137,7 @@ def f() -> None: ...  # E: Name "f" already defined (possibly by an import)
 [out]
 
 [case testRuntimeProtoTwoBases]
-from typing_extensions import Protocol, runtime_checkable
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, Protocol, runtime_checkable
 
 T = TypeVar('T')
 
@@ -114,4 +150,45 @@ class C:
 
 x: P[int] = C()
 [builtins fixtures/tuple.pyi]
-[out]
+[typing fixtures/typing-full.pyi]
+
+[case testSemanalDoesNotLeakSyntheticTypes]
+# flags: --cache-fine-grained
+from typing import Generic, NamedTuple, TypedDict, TypeVar
+from dataclasses import dataclass
+
+T = TypeVar('T')
+class Wrap(Generic[T]): pass
+
+invalid_1: 1 + 2        # E: Invalid type comment or annotation
+invalid_2: Wrap[1 + 2]  # E: Invalid type comment or annotation
+
+class A:
+    invalid_1: 1 + 2        # E: Invalid type comment or annotation
+    invalid_2: Wrap[1 + 2]  # E: Invalid type comment or annotation
+
+class B(NamedTuple):
+    invalid_1: 1 + 2        # E: Invalid type comment or annotation
+    invalid_2: Wrap[1 + 2]  # E: Invalid type comment or annotation
+
+class C(TypedDict):
+    invalid_1: 1 + 2        # E: Invalid type comment or annotation
+    invalid_2: Wrap[1 + 2]  # E: Invalid type comment or annotation
+
+@dataclass
+class D:
+    invalid_1: 1 + 2        # E: Invalid type comment or annotation
+    invalid_2: Wrap[1 + 2]  # E: Invalid type comment or annotation
+[builtins fixtures/dict.pyi]
+[typing fixtures/typing-typeddict.pyi]
+
+[case testAnnotationTurnsSpecialFormIntoVariable]
+from enum import Enum
+from typing import TypedDict, NamedTuple, NewType
+
+A: str = Enum("A", ["foo", "bar"])  # E: Cannot declare the type of a Enum declaration
+B: str = TypedDict("B", {"x": int, "y": int})  # E: Cannot declare the type of a TypedDict declaration
+C: str = NamedTuple("C", [("x", int), ("y", int)])  # E: Cannot declare the type of a NamedTuple declaration
+D: str = NewType("D", int)  # E: Cannot declare the type of a NewType declaration
+[builtins fixtures/dict.pyi]
+[typing fixtures/typing-typeddict.pyi]

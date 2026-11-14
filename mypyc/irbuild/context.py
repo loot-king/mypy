@@ -1,69 +1,81 @@
 """Helpers that store information about functions and the related classes."""
 
-from typing import List, Optional, Tuple
+from __future__ import annotations
 
 from mypy.nodes import FuncItem
-
-from mypyc.ir.ops import Value, BasicBlock
-from mypyc.ir.func_ir import INVALID_FUNC_DEF
 from mypyc.ir.class_ir import ClassIR
-from mypyc.common import decorator_helper_name
+from mypyc.ir.func_ir import INVALID_FUNC_DEF
+from mypyc.ir.ops import BasicBlock, Value
 from mypyc.irbuild.targets import AssignmentTarget
 
 
 class FuncInfo:
     """Contains information about functions as they are generated."""
 
-    def __init__(self,
-                 fitem: FuncItem = INVALID_FUNC_DEF,
-                 name: str = '',
-                 class_name: Optional[str] = None,
-                 namespace: str = '',
-                 is_nested: bool = False,
-                 contains_nested: bool = False,
-                 is_decorated: bool = False,
-                 in_non_ext: bool = False) -> None:
+    def __init__(
+        self,
+        fitem: FuncItem = INVALID_FUNC_DEF,
+        name: str = "",
+        class_name: str | None = None,
+        namespace: str = "",
+        is_nested: bool = False,
+        contains_nested: bool = False,
+        is_decorated: bool = False,
+        in_non_ext: bool = False,
+        add_nested_funcs_to_env: bool = False,
+        is_comprehension_scope: bool = False,
+    ) -> None:
         self.fitem = fitem
-        self.name = name if not is_decorated else decorator_helper_name(name)
+        self.name = name
         self.class_name = class_name
         self.ns = namespace
         # Callable classes implement the '__call__' method, and are used to represent functions
         # that are nested inside of other functions.
-        self._callable_class = None  # type: Optional[ImplicitClass]
+        self._callable_class: ImplicitClass | None = None
         # Environment classes are ClassIR instances that contain attributes representing the
         # variables in the environment of the function they correspond to. Environment classes are
         # generated for functions that contain nested functions.
-        self._env_class = None  # type: Optional[ClassIR]
+        self._env_class: ClassIR | None = None
         # Generator classes implement the '__next__' method, and are used to represent generators
         # returned by generator functions.
-        self._generator_class = None  # type: Optional[GeneratorClass]
+        self._generator_class: GeneratorClass | None = None
         # Environment class registers are the local registers associated with instances of an
         # environment class, used for getting and setting attributes. curr_env_reg is the register
         # associated with the current environment.
-        self._curr_env_reg = None  # type: Optional[Value]
+        self._curr_env_reg: Value | None = None
         # These are flags denoting whether a given function is nested, contains a nested function,
         # is decorated, or is within a non-extension class.
         self.is_nested = is_nested
         self.contains_nested = contains_nested
         self.is_decorated = is_decorated
         self.in_non_ext = in_non_ext
+        self.add_nested_funcs_to_env = add_nested_funcs_to_env
+        # Comprehension scopes are lightweight scope boundaries created when
+        # a comprehension body contains a lambda. The comprehension is still
+        # inlined (same basic blocks), but we push a new FuncInfo so the
+        # closure machinery can capture loop variables through env classes.
+        self.is_comprehension_scope = is_comprehension_scope
 
         # TODO: add field for ret_type: RType = none_rprimitive
 
     def namespaced_name(self) -> str:
-        return '_'.join(x for x in [self.name, self.class_name, self.ns] if x)
+        return "_".join(x for x in [self.name, self.class_name, self.ns] if x)
 
     @property
     def is_generator(self) -> bool:
         return self.fitem.is_generator or self.fitem.is_coroutine
 
     @property
-    def callable_class(self) -> 'ImplicitClass':
+    def is_coroutine(self) -> bool:
+        return self.fitem.is_coroutine
+
+    @property
+    def callable_class(self) -> ImplicitClass:
         assert self._callable_class is not None
         return self._callable_class
 
     @callable_class.setter
-    def callable_class(self, cls: 'ImplicitClass') -> None:
+    def callable_class(self, cls: ImplicitClass) -> None:
         self._callable_class = cls
 
     @property
@@ -76,18 +88,27 @@ class FuncInfo:
         self._env_class = ir
 
     @property
-    def generator_class(self) -> 'GeneratorClass':
+    def generator_class(self) -> GeneratorClass:
         assert self._generator_class is not None
         return self._generator_class
 
     @generator_class.setter
-    def generator_class(self, cls: 'GeneratorClass') -> None:
+    def generator_class(self, cls: GeneratorClass) -> None:
         self._generator_class = cls
 
     @property
     def curr_env_reg(self) -> Value:
         assert self._curr_env_reg is not None
         return self._curr_env_reg
+
+    def can_merge_generator_and_env_classes(self) -> bool:
+        # In simple cases we can place the environment into the generator class,
+        # instead of having two separate classes.
+        if self._generator_class and not self._generator_class.ir.is_final_class:
+            result = False
+        else:
+            result = self.is_generator and not self.is_nested and not self.contains_nested
+        return result
 
 
 class ImplicitClass:
@@ -103,13 +124,13 @@ class ImplicitClass:
         # The ClassIR instance associated with this class.
         self.ir = ir
         # The register associated with the 'self' instance for this generator class.
-        self._self_reg = None  # type: Optional[Value]
+        self._self_reg: Value | None = None
         # Environment class registers are the local registers associated with instances of an
         # environment class, used for getting and setting attributes. curr_env_reg is the register
         # associated with the current environment. prev_env_reg is the self.__mypyc_env__ field
         # associated with the previous environment.
-        self._curr_env_reg = None  # type: Optional[Value]
-        self._prev_env_reg = None  # type: Optional[Value]
+        self._curr_env_reg: Value | None = None
+        self._prev_env_reg: Value | None = None
 
     @property
     def self_reg(self) -> Value:
@@ -146,20 +167,25 @@ class GeneratorClass(ImplicitClass):
         super().__init__(ir)
         # This register holds the label number that the '__next__' function should go to the next
         # time it is called.
-        self._next_label_reg = None  # type: Optional[Value]
-        self._next_label_target = None  # type: Optional[AssignmentTarget]
+        self._next_label_reg: Value | None = None
+        self._next_label_target: AssignmentTarget | None = None
 
         # These registers hold the error values for the generator object for the case that the
         # 'throw' function is called.
-        self.exc_regs = None  # type: Optional[Tuple[Value, Value, Value]]
+        self.exc_regs: tuple[Value, Value, Value] | None = None
 
         # Holds the arg passed to send
-        self.send_arg_reg = None  # type: Optional[Value]
+        self.send_arg_reg: Value | None = None
+
+        # Holds the PyObject ** pointer through which return value can be passed
+        # instead of raising StopIteration(ret_value) (only if not NULL). This
+        # is used for faster native-to-native calls.
+        self.stop_iter_value_reg: Value | None = None
 
         # The switch block is used to decide which instruction to go using the value held in the
         # next-label register.
         self.switch_block = BasicBlock()
-        self.continuation_blocks = []  # type: List[BasicBlock]
+        self.continuation_blocks: list[BasicBlock] = []
 
     @property
     def next_label_reg(self) -> Value:

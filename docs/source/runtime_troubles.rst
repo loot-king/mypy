@@ -8,21 +8,43 @@ version of Python considers legal code. This section describes these scenarios
 and explains how to get your code running again. Generally speaking, we have
 three tools at our disposal:
 
-* For Python 3.7 through 3.9, use of ``from __future__ import annotations``
-  (:pep:`563`), made the default in Python 3.10 and later
 * Use of string literal types or type comments
 * Use of ``typing.TYPE_CHECKING``
+* Use of ``from __future__ import annotations`` (:pep:`563`)
 
 We provide a description of these before moving onto discussion of specific
 problems you may encounter.
 
 .. _string-literal-types:
 
-String literal types
---------------------
+String literal types and type comments
+--------------------------------------
+
+Mypy lets you add type annotations using the (now deprecated) ``# type:``
+type comment syntax. These were required with Python versions older than 3.6,
+since they didn't support type annotations on variables. Example:
+
+.. code-block:: python
+
+   a = 1  # type: int
+
+   def f(x):  # type: (int) -> int
+       return x + 1
+
+   # Alternative type comment syntax for functions with many arguments
+   def send_email(
+        address,     # type: Union[str, List[str]]
+        sender,      # type: str
+        cc,          # type: Optional[List[str]]
+        subject='',
+        body=None    # type: List[str]
+   ):
+       # type: (...) -> bool
 
 Type comments can't cause runtime errors because comments are not evaluated by
-Python. In a similar way, using string literal types sidesteps the problem of
+Python.
+
+In a similar way, using string literal types sidesteps the problem of
 annotations that would cause runtime errors.
 
 Any type can be entered as a string literal, and you can combine
@@ -30,8 +52,8 @@ string-literal types with non-string-literal types freely:
 
 .. code-block:: python
 
-   def f(a: List['A']) -> None: ...  # OK
-   def g(n: 'int') -> None: ...      # OK, though not useful
+   def f(a: list['A']) -> None: ...  # OK, prevents NameError since A is defined later
+   def g(n: 'int') -> None: ...      # Also OK, though not useful
 
    class A: pass
 
@@ -47,9 +69,10 @@ Future annotations import (PEP 563)
 -----------------------------------
 
 Many of the issues described here are caused by Python trying to evaluate
-annotations. From Python 3.10 on, Python will no longer attempt to evaluate
-function and variable annotations. This behaviour is made available in Python
-3.7 and later through the use of ``from __future__ import annotations``.
+annotations. Future Python versions (potentially Python 3.14) will by default no
+longer attempt to evaluate function and variable annotations. This behaviour is
+made available in Python 3.7 and later through the use of
+``from __future__ import annotations``.
 
 This can be thought of as automatic string literal-ification of all function and
 variable annotations. Note that function and variable annotations are still
@@ -61,20 +84,21 @@ required to be valid Python syntax. For more details, see :pep:`563`.
     still require string literals or result in errors, typically involving use
     of forward references or generics in:
 
-    * :ref:`type aliases <type-aliases>`;
-    * :ref:`casts <casts>`;
-    * type definitions (see :py:class:`~typing.TypeVar`, :py:func:`~typing.NewType`, :py:class:`~typing.NamedTuple`);
+    * :ref:`type aliases <type-aliases>` not defined using the ``type`` statement;
+    * :ref:`type narrowing <type-narrowing>`;
+    * type definitions (see :py:class:`~typing.TypeVar`, :py:class:`~typing.NewType`, :py:class:`~typing.NamedTuple`);
     * base classes.
 
     .. code-block:: python
 
         # base class example
         from __future__ import annotations
-        class A(Tuple['B', 'C']): ... # String literal types needed here
+
+        class A(tuple['B', 'C']): ... # String literal types needed here
         class B: ...
         class C: ...
 
-.. note::
+.. warning::
 
     Some libraries may have use cases for dynamic evaluation of annotations, for
     instance, through use of ``typing.get_type_hints`` or ``eval``. If your
@@ -94,11 +118,7 @@ Since code inside ``if TYPE_CHECKING:`` is not executed at runtime, it provides
 a convenient way to tell mypy something without the code being evaluated at
 runtime. This is most useful for resolving :ref:`import cycles <import-cycles>`.
 
-.. note::
-
-   Python 3.5.1 and below don't have :py:data:`~typing.TYPE_CHECKING`. An
-   alternative is to define a constant named ``MYPY`` that has the value
-   ``False`` at runtime. Mypy considers it to be ``True`` when type checking.
+.. _forward-references:
 
 Class name forward references
 -----------------------------
@@ -162,23 +182,22 @@ File ``foo.py``:
 
 .. code-block:: python
 
-   from typing import List, TYPE_CHECKING
+   from typing import TYPE_CHECKING
 
    if TYPE_CHECKING:
        import bar
 
-   def listify(arg: 'bar.BarClass') -> 'List[bar.BarClass]':
+   def listify(arg: 'bar.BarClass') -> 'list[bar.BarClass]':
        return [arg]
 
 File ``bar.py``:
 
 .. code-block:: python
 
-   from typing import List
    from foo import listify
 
    class BarClass:
-       def listifyme(self) -> 'List[BarClass]':
+       def listifyme(self) -> 'list[BarClass]':
            return listify(self)
 
 .. _not-generic-runtime:
@@ -226,7 +245,8 @@ complicated and you need to use :ref:`typing.TYPE_CHECKING
    task_queue: Tasks
    reveal_type(task_queue.get())  # Reveals str
 
-If your subclass is also generic, you can use the following:
+If your subclass is also generic, you can use the following (using the
+legacy syntax for generic classes):
 
 .. code-block:: python
 
@@ -244,14 +264,16 @@ If your subclass is also generic, you can use the following:
    task_queue: MyQueue[str]
    reveal_type(task_queue.get())  # Reveals str
 
-In Python 3.9, we can just inherit directly from ``Queue[str]`` or ``Queue[T]``
-since its :py:class:`queue.Queue` implements :py:meth:`__class_getitem__`, so
-the class object can be subscripted at runtime without issue.
+In Python 3.9 and later, we can just inherit directly from ``Queue[str]`` or ``Queue[T]``
+since its :py:class:`queue.Queue` implements :py:meth:`~object.__class_getitem__`, so
+the class object can be subscripted at runtime. You may still encounter issues (even if
+you use a recent Python version) when subclassing generic classes defined in third-party
+libraries if types are generic only in stubs.
 
 Using types defined in stubs but not at runtime
 -----------------------------------------------
 
-Sometimes stubs that you're using may define types you wish to re-use that do
+Sometimes stubs that you're using may define types you wish to reuse that do
 not exist at runtime. Importing these types naively will cause your code to fail
 at runtime with ``ImportError`` or ``ModuleNotFoundError``. Similar to previous
 sections, these can be dealt with by using :ref:`typing.TYPE_CHECKING
@@ -259,9 +281,17 @@ sections, these can be dealt with by using :ref:`typing.TYPE_CHECKING
 
 .. code-block:: python
 
+   from __future__ import annotations
    from typing import TYPE_CHECKING
    if TYPE_CHECKING:
-       from _typeshed import SupportsLessThan
+       from _typeshed import SupportsRichComparison
+
+    def f(x: SupportsRichComparison) -> None
+
+The ``from __future__ import annotations`` is required to avoid
+a ``NameError`` when using the imported symbol.
+For more information and caveats, see the section on
+:ref:`future annotations <future-annotations>`.
 
 .. _generic-builtins:
 
@@ -280,8 +310,8 @@ the built-in collections or those from :py:mod:`collections.abc`:
    y: dict[int, str]
    z: Sequence[str] = x
 
-There is limited support for using this syntax in Python 3.7 and later as well.
-If you use ``from __future__ import annotations``, mypy will understand this
+There is limited support for using this syntax in Python 3.7 and later as well:
+if you use ``from __future__ import annotations``, mypy will understand this
 syntax in annotations. However, since this will not be supported by the Python
 interpreter at runtime, make sure you're aware of the caveats mentioned in the
 notes at :ref:`future annotations import<future-annotations>`.
@@ -289,11 +319,11 @@ notes at :ref:`future annotations import<future-annotations>`.
 Using X | Y syntax for Unions
 -----------------------------
 
-Starting with Python 3.10 (:pep:`604`), you can spell union types as ``x: int |
-str``, instead of ``x: typing.Union[int, str]``.
+Starting with Python 3.10 (:pep:`604`), you can spell union types as
+``x: int | str``, instead of ``x: typing.Union[int, str]``.
 
-There is limited support for using this syntax in Python 3.7 and later as well.
-If you use ``from __future__ import annotations``, mypy will understand this
+There is limited support for using this syntax in Python 3.7 and later as well:
+if you use ``from __future__ import annotations``, mypy will understand this
 syntax in annotations, string literal types, type comments and stub files.
 However, since this will not be supported by the Python interpreter at runtime
 (if evaluated, ``int | str`` will raise ``TypeError: unsupported operand type(s)
@@ -304,16 +334,14 @@ Using new additions to the typing module
 ----------------------------------------
 
 You may find yourself wanting to use features added to the :py:mod:`typing`
-module in earlier versions of Python than the addition, for example, using any
-of ``Literal``, ``Protocol``, ``TypedDict`` with Python 3.6.
+module in earlier versions of Python than the addition.
 
 The easiest way to do this is to install and use the ``typing_extensions``
 package from PyPI for the relevant imports, for example:
 
 .. code-block:: python
 
-   from typing_extensions import Literal
-   x: Literal["open", "close"]
+   from typing_extensions import TypeIs
 
 If you don't want to rely on ``typing_extensions`` being installed on newer
 Pythons, you could alternatively use:
@@ -321,12 +349,10 @@ Pythons, you could alternatively use:
 .. code-block:: python
 
    import sys
-   if sys.version_info >= (3, 8):
-       from typing import Literal
+   if sys.version_info >= (3, 13):
+       from typing import TypeIs
    else:
-       from typing_extensions import Literal
-
-   x: Literal["open", "close"]
+       from typing_extensions import TypeIs
 
 This plays nicely well with following :pep:`508` dependency specification:
-``typing_extensions; python_version<"3.8"``
+``typing_extensions; python_version<"3.13"``

@@ -1,170 +1,243 @@
 import os
 import sys
-from _typeshed import StrPath, SupportsRead, SupportsWrite
-from typing import (
-    Any,
-    AnyStr,
-    Callable,
-    Iterable,
-    List,
-    NamedTuple,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-    overload,
-)
+from _typeshed import BytesPath, ExcInfo, FileDescriptorOrPath, MaybeNone, StrOrBytesPath, StrPath, SupportsRead, SupportsWrite
+from collections.abc import Callable, Iterable, Sequence
+from tarfile import _TarfileFilter
+from typing import Any, AnyStr, NamedTuple, Protocol, TypeAlias, TypeVar, overload, type_check_only
+from typing_extensions import Never, deprecated
 
-if sys.version_info >= (3, 6):
-    _AnyStr = str
-    _AnyPath = TypeVar("_AnyPath", str, os.PathLike[str])
-    # Return value of some functions that may either return a path-like object that was passed in or
-    # a string
-    _PathReturn = Any
-elif sys.version_info >= (3,):
-    _AnyStr = str
-    _AnyPath = str
-    _PathReturn = str
+__all__ = [
+    "copyfileobj",
+    "copyfile",
+    "copymode",
+    "copystat",
+    "copy",
+    "copy2",
+    "copytree",
+    "move",
+    "rmtree",
+    "Error",
+    "SpecialFileError",
+    "make_archive",
+    "get_archive_formats",
+    "register_archive_format",
+    "unregister_archive_format",
+    "get_unpack_formats",
+    "register_unpack_format",
+    "unregister_unpack_format",
+    "unpack_archive",
+    "ignore_patterns",
+    "chown",
+    "which",
+    "get_terminal_size",
+    "SameFileError",
+    "disk_usage",
+]
+if sys.version_info < (3, 14):
+    __all__ += ["ExecError"]
+
+_StrOrBytesPathT = TypeVar("_StrOrBytesPathT", bound=StrOrBytesPath)
+_StrPathT = TypeVar("_StrPathT", bound=StrPath)
+_BytesPathT = TypeVar("_BytesPathT", bound=BytesPath)
+
+class Error(OSError): ...
+class SameFileError(Error): ...
+class SpecialFileError(OSError): ...
+
+if sys.version_info >= (3, 14):
+    ExecError = RuntimeError  # Deprecated in Python 3.14; removal scheduled for Python 3.16
+
 else:
-    _AnyStr = TypeVar("_AnyStr", str, unicode)
-    _AnyPath = TypeVar("_AnyPath", str, unicode)
-    _PathReturn = Type[None]
-
-if sys.version_info >= (3,):
-    class Error(OSError): ...
-    class SameFileError(Error): ...
-    class SpecialFileError(OSError): ...
     class ExecError(OSError): ...
-    class ReadError(OSError): ...
-    class RegistryError(Exception): ...
 
-else:
-    class Error(EnvironmentError): ...
-    class SpecialFileError(EnvironmentError): ...
-    class ExecError(EnvironmentError): ...
+class ReadError(OSError): ...
+class RegistryError(Exception): ...
 
-def copyfileobj(fsrc: SupportsRead[AnyStr], fdst: SupportsWrite[AnyStr], length: int = ...) -> None: ...
+def copyfileobj(fsrc: SupportsRead[AnyStr], fdst: SupportsWrite[AnyStr], length: int = 0) -> None: ...
+def copyfile(src: StrOrBytesPath, dst: _StrOrBytesPathT, *, follow_symlinks: bool = True) -> _StrOrBytesPathT: ...
+def copymode(src: StrOrBytesPath, dst: StrOrBytesPath, *, follow_symlinks: bool = True) -> None: ...
+def copystat(src: StrOrBytesPath, dst: StrOrBytesPath, *, follow_symlinks: bool = True) -> None: ...
 
-if sys.version_info >= (3,):
-    def copyfile(src: StrPath, dst: _AnyPath, *, follow_symlinks: bool = ...) -> _AnyPath: ...
-    def copymode(src: StrPath, dst: StrPath, *, follow_symlinks: bool = ...) -> None: ...
-    def copystat(src: StrPath, dst: StrPath, *, follow_symlinks: bool = ...) -> None: ...
-    def copy(src: StrPath, dst: StrPath, *, follow_symlinks: bool = ...) -> _PathReturn: ...
-    def copy2(src: StrPath, dst: StrPath, *, follow_symlinks: bool = ...) -> _PathReturn: ...
+@overload
+def copy(src: StrPath, dst: _StrPathT, *, follow_symlinks: bool = True) -> _StrPathT | str: ...
+@overload
+def copy(src: BytesPath, dst: _BytesPathT, *, follow_symlinks: bool = True) -> _BytesPathT | bytes: ...
 
-else:
-    def copyfile(src: StrPath, dst: StrPath) -> None: ...
-    def copymode(src: StrPath, dst: StrPath) -> None: ...
-    def copystat(src: StrPath, dst: StrPath) -> None: ...
-    def copy(src: StrPath, dst: StrPath) -> _PathReturn: ...
-    def copy2(src: StrPath, dst: StrPath) -> _PathReturn: ...
+@overload
+def copy2(src: StrPath, dst: _StrPathT, *, follow_symlinks: bool = True) -> _StrPathT | str: ...
+@overload
+def copy2(src: BytesPath, dst: _BytesPathT, *, follow_symlinks: bool = True) -> _BytesPathT | bytes: ...
 
-def ignore_patterns(*patterns: StrPath) -> Callable[[Any, List[_AnyStr]], Set[_AnyStr]]: ...
+def ignore_patterns(*patterns: StrPath) -> Callable[[Any, list[str]], set[str]]: ...
+def copytree(
+    src: StrPath,
+    dst: _StrPathT,
+    symlinks: bool = False,
+    ignore: Callable[[str, list[str]], Iterable[str]] | Callable[[StrPath, list[str]], Iterable[str]] | None = None,
+    copy_function: Callable[[str, str], object] = ...,
+    ignore_dangling_symlinks: bool = False,
+    dirs_exist_ok: bool = False,
+) -> _StrPathT: ...
 
-if sys.version_info >= (3, 8):
-    def copytree(
-        src: StrPath,
-        dst: StrPath,
-        symlinks: bool = ...,
-        ignore: Union[None, Callable[[str, List[str]], Iterable[str]], Callable[[StrPath, List[str]], Iterable[str]]] = ...,
-        copy_function: Callable[[str, str], None] = ...,
-        ignore_dangling_symlinks: bool = ...,
-        dirs_exist_ok: bool = ...,
-    ) -> _PathReturn: ...
+_OnErrorCallback: TypeAlias = Callable[[Callable[..., Any], str, ExcInfo], object]
+_OnExcCallback: TypeAlias = Callable[[Callable[..., Any], str, BaseException], object]
 
-elif sys.version_info >= (3,):
-    def copytree(
-        src: StrPath,
-        dst: StrPath,
-        symlinks: bool = ...,
-        ignore: Union[None, Callable[[str, List[str]], Iterable[str]], Callable[[StrPath, List[str]], Iterable[str]]] = ...,
-        copy_function: Callable[[str, str], None] = ...,
-        ignore_dangling_symlinks: bool = ...,
-    ) -> _PathReturn: ...
+@type_check_only
+class _RmtreeType(Protocol):
+    avoids_symlink_attacks: bool
+    if sys.version_info >= (3, 12):
+        @overload
+        @deprecated("The `onerror` parameter is deprecated. Use `onexc` instead.")
+        def __call__(
+            self,
+            path: StrOrBytesPath,
+            ignore_errors: bool,
+            onerror: _OnErrorCallback | None,
+            *,
+            onexc: None = None,
+            dir_fd: int | None = None,
+        ) -> None: ...
+        @overload
+        @deprecated("The `onerror` parameter is deprecated. Use `onexc` instead.")
+        def __call__(
+            self,
+            path: StrOrBytesPath,
+            ignore_errors: bool = False,
+            *,
+            onerror: _OnErrorCallback | None,
+            onexc: None = None,
+            dir_fd: int | None = None,
+        ) -> None: ...
+        @overload
+        def __call__(
+            self,
+            path: StrOrBytesPath,
+            ignore_errors: bool = False,
+            *,
+            onexc: _OnExcCallback | None = None,
+            dir_fd: int | None = None,
+        ) -> None: ...
+    elif sys.version_info >= (3, 11):
+        def __call__(
+            self,
+            path: StrOrBytesPath,
+            ignore_errors: bool = False,
+            onerror: _OnErrorCallback | None = None,
+            *,
+            dir_fd: int | None = None,
+        ) -> None: ...
 
-else:
-    def copytree(
-        src: AnyStr,
-        dst: AnyStr,
-        symlinks: bool = ...,
-        ignore: Union[None, Callable[[AnyStr, List[AnyStr]], Iterable[AnyStr]]] = ...,
-    ) -> _PathReturn: ...
+    else:
+        def __call__(
+            self, path: StrOrBytesPath, ignore_errors: bool = False, onerror: _OnErrorCallback | None = None
+        ) -> None: ...
 
-if sys.version_info >= (3,):
-    def rmtree(
-        path: Union[bytes, StrPath], ignore_errors: bool = ..., onerror: Optional[Callable[[Any, Any, Any], Any]] = ...
-    ) -> None: ...
+rmtree: _RmtreeType
 
-else:
-    def rmtree(
-        path: _AnyPath, ignore_errors: bool = ..., onerror: Optional[Callable[[Any, _AnyPath, Any], Any]] = ...
-    ) -> None: ...
+_CopyFn: TypeAlias = Callable[[str, str], object] | Callable[[StrPath, StrPath], object]
 
-_CopyFn = Union[Callable[[str, str], None], Callable[[StrPath, StrPath], None]]
+# N.B. shutil.move appears to take bytes arguments, however,
+# this does not work when dst is (or is within) an existing directory.
+# (#6832)
+def move(src: StrPath, dst: _StrPathT, copy_function: _CopyFn = ...) -> _StrPathT | str | MaybeNone: ...
 
-if sys.version_info >= (3, 9):
-    def move(src: StrPath, dst: StrPath, copy_function: _CopyFn = ...) -> _PathReturn: ...
+class _ntuple_diskusage(NamedTuple):
+    total: int
+    used: int
+    free: int
 
-elif sys.version_info >= (3, 5):
-    # See https://bugs.python.org/issue32689
-    def move(src: str, dst: StrPath, copy_function: _CopyFn = ...) -> _PathReturn: ...
+def disk_usage(path: FileDescriptorOrPath) -> _ntuple_diskusage: ...
 
-else:
-    def move(src: StrPath, dst: StrPath) -> _PathReturn: ...
-
-if sys.version_info >= (3,):
-    class _ntuple_diskusage(NamedTuple):
-        total: int
-        used: int
-        free: int
-    def disk_usage(path: StrPath) -> _ntuple_diskusage: ...
-    def chown(path: StrPath, user: Optional[Union[str, int]] = ..., group: Optional[Union[str, int]] = ...) -> None: ...
-
-if sys.version_info >= (3, 8):
+# While chown can be imported on Windows, it doesn't actually work;
+# see https://bugs.python.org/issue33140. We keep it here because it's
+# in __all__.
+if sys.version_info >= (3, 13):
     @overload
-    def which(cmd: StrPath, mode: int = ..., path: Optional[StrPath] = ...) -> Optional[str]: ...
+    def chown(
+        path: FileDescriptorOrPath,
+        user: str | int,
+        group: None = None,
+        *,
+        dir_fd: int | None = None,
+        follow_symlinks: bool = True,
+    ) -> None: ...
     @overload
-    def which(cmd: bytes, mode: int = ..., path: Optional[StrPath] = ...) -> Optional[bytes]: ...
+    def chown(
+        path: FileDescriptorOrPath,
+        user: None = None,
+        *,
+        group: str | int,
+        dir_fd: int | None = None,
+        follow_symlinks: bool = True,
+    ) -> None: ...
+    @overload
+    def chown(
+        path: FileDescriptorOrPath, user: None, group: str | int, *, dir_fd: int | None = None, follow_symlinks: bool = True
+    ) -> None: ...
+    @overload
+    def chown(
+        path: FileDescriptorOrPath, user: str | int, group: str | int, *, dir_fd: int | None = None, follow_symlinks: bool = True
+    ) -> None: ...
+else:
+    @overload
+    def chown(path: FileDescriptorOrPath, user: str | int, group: None = None) -> None: ...
+    @overload
+    def chown(path: FileDescriptorOrPath, user: None = None, *, group: str | int) -> None: ...
+    @overload
+    def chown(path: FileDescriptorOrPath, user: None, group: str | int) -> None: ...
+    @overload
+    def chown(path: FileDescriptorOrPath, user: str | int, group: str | int) -> None: ...
 
-elif sys.version_info >= (3,):
-    def which(cmd: StrPath, mode: int = ..., path: Optional[StrPath] = ...) -> Optional[str]: ...
+if sys.platform == "win32" and sys.version_info < (3, 12):
+    @overload
+    @deprecated("On Windows before Python 3.12, using a PathLike as `cmd` would always fail or return `None`.")
+    def which(cmd: os.PathLike[str], mode: int = 1, path: StrPath | None = None) -> Never: ...
+
+@overload
+def which(cmd: StrPath, mode: int = 1, path: StrPath | None = None) -> str | None: ...
+@overload
+def which(cmd: bytes, mode: int = 1, path: StrPath | None = None) -> bytes | None: ...
 
 def make_archive(
-    base_name: _AnyStr,
+    base_name: str,
     format: str,
-    root_dir: Optional[StrPath] = ...,
-    base_dir: Optional[StrPath] = ...,
+    root_dir: StrPath | None = None,
+    base_dir: StrPath | None = None,
     verbose: bool = ...,
     dry_run: bool = ...,
-    owner: Optional[str] = ...,
-    group: Optional[str] = ...,
-    logger: Optional[Any] = ...,
-) -> _AnyStr: ...
-def get_archive_formats() -> List[Tuple[str, str]]: ...
-def register_archive_format(
-    name: str,
-    function: Callable[..., Any],
-    extra_args: Optional[Sequence[Union[Tuple[str, Any], List[Any]]]] = ...,
-    description: str = ...,
-) -> None: ...
-def unregister_archive_format(name: str) -> None: ...
+    owner: str | None = None,
+    group: str | None = None,
+    logger: Any | None = None,
+) -> str: ...
+def get_archive_formats() -> list[tuple[str, str]]: ...
 
-if sys.version_info >= (3,):
-    if sys.version_info >= (3, 7):
-        def unpack_archive(filename: StrPath, extract_dir: Optional[StrPath] = ..., format: Optional[str] = ...) -> None: ...
-    else:
-        # See http://bugs.python.org/issue30218
-        def unpack_archive(filename: str, extract_dir: Optional[StrPath] = ..., format: Optional[str] = ...) -> None: ...
-    def register_unpack_format(
-        name: str,
-        extensions: List[str],
-        function: Any,
-        extra_args: Optional[Sequence[Tuple[str, Any]]] = ...,
-        description: str = ...,
-    ) -> None: ...
-    def unregister_unpack_format(name: str) -> None: ...
-    def get_unpack_formats() -> List[Tuple[str, List[str], str]]: ...
-    def get_terminal_size(fallback: Tuple[int, int] = ...) -> os.terminal_size: ...
+@overload
+def register_archive_format(
+    name: str, function: Callable[..., object], extra_args: Sequence[tuple[str, Any] | list[Any]], description: str = ""
+) -> None: ...
+@overload
+def register_archive_format(
+    name: str, function: Callable[[str, str], object], extra_args: None = None, description: str = ""
+) -> None: ...
+
+def unregister_archive_format(name: str) -> None: ...
+def unpack_archive(
+    filename: StrPath, extract_dir: StrPath | None = None, format: str | None = None, *, filter: _TarfileFilter | None = None
+) -> None: ...
+
+@overload
+def register_unpack_format(
+    name: str,
+    extensions: list[str],
+    function: Callable[..., object],
+    extra_args: Sequence[tuple[str, Any]],
+    description: str = "",
+) -> None: ...
+@overload
+def register_unpack_format(
+    name: str, extensions: list[str], function: Callable[[str, str], object], extra_args: None = None, description: str = ""
+) -> None: ...
+
+def unregister_unpack_format(name: str) -> None: ...
+def get_unpack_formats() -> list[tuple[str, list[str], str]]: ...
+def get_terminal_size(fallback: tuple[int, int] = (80, 24)) -> os.terminal_size: ...

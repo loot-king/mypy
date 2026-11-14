@@ -1,25 +1,28 @@
-import sys
-from typing import Callable, Optional, Union
+from _typeshed import FileDescriptorOrPath
+from typing import Final, Literal, Protocol, overload, type_check_only
 from xml.etree.ElementTree import Element
 
-XINCLUDE: str
-XINCLUDE_INCLUDE: str
-XINCLUDE_FALLBACK: str
+@type_check_only
+class _Loader(Protocol):
+    @overload
+    def __call__(self, href: FileDescriptorOrPath, parse: Literal["xml"], encoding: str | None = None) -> Element: ...
+    @overload
+    def __call__(self, href: FileDescriptorOrPath, parse: Literal["text"], encoding: str | None = None) -> str: ...
+
+XINCLUDE: Final = "{http://www.w3.org/2001/XInclude}"
+
+XINCLUDE_INCLUDE: Final = "{http://www.w3.org/2001/XInclude}include"
+XINCLUDE_FALLBACK: Final = "{http://www.w3.org/2001/XInclude}fallback"
+
+DEFAULT_MAX_INCLUSION_DEPTH: Final = 6
 
 class FatalIncludeError(SyntaxError): ...
 
-def default_loader(href: Union[str, bytes, int], parse: str, encoding: Optional[str] = ...) -> Union[str, Element]: ...
+@overload
+def default_loader(href: FileDescriptorOrPath, parse: Literal["xml"], encoding: str | None = None) -> Element: ...
+@overload
+def default_loader(href: FileDescriptorOrPath, parse: Literal["text"], encoding: str | None = None) -> str: ...
 
-# TODO: loader is of type default_loader ie it takes a callable that has the
-# same signature as default_loader. But default_loader has a keyword argument
-# Which can't be represented using Callable...
-if sys.version_info >= (3, 9):
-    def include(
-        elem: Element,
-        loader: Optional[Callable[..., Union[str, Element]]] = ...,
-        base_url: Optional[str] = ...,
-        max_depth: Optional[int] = ...,
-    ) -> None: ...
+def include(elem: Element, loader: _Loader | None = None, base_url: str | None = None, max_depth: int | None = 6) -> None: ...
 
-else:
-    def include(elem: Element, loader: Optional[Callable[..., Union[str, Element]]] = ...) -> None: ...
+class LimitedRecursiveIncludeError(FatalIncludeError): ...

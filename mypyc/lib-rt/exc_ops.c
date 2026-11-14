@@ -1,3 +1,5 @@
+#include "pythoncapi_compat.h"
+
 // Exception related primitive operations
 //
 // These are registered in mypyc.primitives.exc_ops.
@@ -5,33 +7,123 @@
 #include <Python.h>
 #include "CPy.h"
 
-void CPy_Raise(PyObject *exc) {
-    if (PyObject_IsInstance(exc, (PyObject *)&PyType_Type)) {
-        PyObject *obj = PyObject_CallFunctionObjArgs(exc, NULL);
-        if (!obj)
-            return;
-        PyErr_SetObject(exc, obj);
-        Py_DECREF(obj);
-    } else {
-        PyErr_SetObject((PyObject *)Py_TYPE(exc), exc);
+// Return a new exception instance, or NULL with an error set.
+static PyObject *instantiate_exception(PyObject *type) {
+    PyObject *value = PyObject_CallNoArgs(type);
+    if (!value)
+        return NULL;
+    if (!PyExceptionInstance_Check(value)) {
+        PyErr_Format(PyExc_TypeError,
+                     "calling %R should have returned an instance of "
+                     "BaseException, not %R", type, Py_TYPE(value));
+        Py_DECREF(value);
+        return NULL;
     }
+    return value;
+}
+
+// A NULL cause means no 'from' clause; Py_None means 'from None'.
+static void raise_exception(PyObject *exc, PyObject *cause) {
+    PyObject *type;
+    PyObject *value;
+    if (PyExceptionClass_Check(exc)) {
+        type = exc;
+        value = instantiate_exception(exc);
+        if (!value)
+            return;
+    } else if (PyExceptionInstance_Check(exc)) {
+        type = (PyObject *)Py_TYPE(exc);
+        value = Py_NewRef(exc);
+    } else {
+        PyErr_SetString(PyExc_TypeError, "exceptions must derive from BaseException");
+        return;
+    }
+
+    if (cause != NULL) {
+        PyObject *fixed_cause;
+        if (PyExceptionClass_Check(cause)) {
+            fixed_cause = instantiate_exception(cause);
+            if (!fixed_cause)
+                goto fail;
+        } else if (PyExceptionInstance_Check(cause)) {
+            fixed_cause = Py_NewRef(cause);
+        } else if (Py_IsNone(cause)) {
+            fixed_cause = NULL;
+        } else {
+            PyErr_SetString(PyExc_TypeError, "exception causes must derive from BaseException");
+            goto fail;
+        }
+        // This steals the reference to the cause and sets __suppress_context__
+        PyException_SetCause(value, fixed_cause);
+    }
+    // Normalize against the original class, even if __new__ returned an unrelated exception.
+    PyErr_SetObject(type, value);
+fail:
+    Py_DECREF(value);
+}
+
+void CPy_Raise(PyObject *exc) {
+    raise_exception(exc, NULL);
+}
+
+void CPy_RaiseFrom(PyObject *exc, PyObject *cause) {
+    raise_exception(exc, cause);
 }
 
 void CPy_Reraise(void) {
     PyObject *p_type, *p_value, *p_traceback;
     PyErr_GetExcInfo(&p_type, &p_value, &p_traceback);
+    if (p_value == NULL || Py_IsNone(p_value)) {
+        Py_XDECREF(p_type);
+        Py_XDECREF(p_value);
+        Py_XDECREF(p_traceback);
+        PyErr_SetString(PyExc_RuntimeError, "No active exception to reraise");
+        return;
+    }
     PyErr_Restore(p_type, p_value, p_traceback);
 }
 
 void CPyErr_SetObjectAndTraceback(PyObject *type, PyObject *value, PyObject *traceback) {
-    // Set the value and traceback of an error. Because calling
-    // PyErr_Restore takes away a reference to each object passed in
-    // as an argument, we manually increase the reference count of
-    // each argument before calling it.
+    if (!PyType_Check(type) && Py_IsNone(value)) {
+        // The first argument must be an exception instance
+        value = type;
+        type = (PyObject *)Py_TYPE(value);
+    }
+
+    // PyErr_Restore steals a reference to each argument.
     Py_INCREF(type);
     Py_INCREF(value);
-    Py_INCREF(traceback);
+    // An omitted traceback (or None) preserves an exception instance's
+    // existing traceback, as generator.throw() and coroutine.throw() do.
+    if (Py_IsNone(traceback) && PyExceptionInstance_Check(value)) {
+        traceback = PyException_GetTraceback(value);
+    } else {
+        Py_INCREF(traceback);
+    }
     PyErr_Restore(type, value, traceback);
+}
+
+// Validate the arguments of generator.throw() before resuming the generator, like
+// CPython's _gen_throw. Return false and set an error if they are invalid.
+bool CPyGen_CheckThrowArgs(PyObject *type, PyObject *value, PyObject *traceback) {
+    if (!Py_IsNone(traceback) && !PyTraceBack_Check(traceback)) {
+        PyErr_SetString(PyExc_TypeError, "throw() third argument must be a traceback object");
+        return false;
+    }
+    if (PyExceptionClass_Check(type)) {
+        return true;
+    }
+    if (PyExceptionInstance_Check(type)) {
+        if (!Py_IsNone(value)) {
+            PyErr_SetString(PyExc_TypeError, "instance exception may not have a separate value");
+            return false;
+        }
+        return true;
+    }
+    PyErr_Format(PyExc_TypeError,
+                 "exceptions must be classes or instances deriving from BaseException, not %s",
+                 Py_TYPE(type)->tp_name);
+    return false;
 }
 
 tuple_T3OOO CPy_CatchError(void) {
@@ -75,7 +167,7 @@ void CPy_RestoreExcInfo(tuple_T3OOO info) {
 }
 
 bool CPy_ExceptionMatches(PyObject *type) {
-    return PyErr_GivenExceptionMatches(CPy_ExcState()->exc_type, type);
+    return PyErr_GivenExceptionMatches((PyObject *)Py_TYPE(CPy_ExcState()->exc_value), type);
 }
 
 PyObject *CPy_GetExcValue(void) {
@@ -115,11 +207,11 @@ static PyObject *CPy_GetTypeName(PyObject *type) {
     PyObject *module = NULL, *name = NULL;
     PyObject *full = NULL;
 
-    module = PyObject_GetAttrString(type, "__module__");
+    module = PyObject_GetAttr(type, mypyc_interned_str.__module__);
     if (!module || !PyUnicode_Check(module)) {
         goto out;
     }
-    name = PyObject_GetAttrString(type, "__qualname__");
+    name = PyObject_GetAttr(type, mypyc_interned_str.__qualname__);
     if (!name || !PyUnicode_Check(name)) {
         goto out;
     }
@@ -140,7 +232,7 @@ out:
 // Get the type of a value as a string, expanding tuples to include
 // all the element types.
 static PyObject *CPy_FormatTypeName(PyObject *value) {
-    if (value == Py_None) {
+    if (Py_IsNone(value)) {
         return PyUnicode_FromString("None");
     }
 
@@ -189,38 +281,16 @@ void CPy_TypeError(const char *expected, PyObject *value) {
     }
 }
 
-// These functions are basically exactly PyCode_NewEmpty and
-// _PyTraceback_Add which are available in all the versions we support.
-// We're continuing to use them because we'll probably optimize them later.
-static PyCodeObject *CPy_CreateCodeObject(const char *filename, const char *funcname, int line) {
-    PyObject *filename_obj = PyUnicode_FromString(filename);
-    PyObject *funcname_obj = PyUnicode_FromString(funcname);
-    PyObject *empty_bytes = PyBytes_FromStringAndSize("", 0);
-    PyObject *empty_tuple = PyTuple_New(0);
-    PyCodeObject *code_obj = NULL;
-    if (filename_obj == NULL || funcname_obj == NULL || empty_bytes == NULL
-        || empty_tuple == NULL) {
-        goto Error;
-    }
-    code_obj = PyCode_New(0, 0, 0, 0, 0,
-                          empty_bytes,
-                          empty_tuple,
-                          empty_tuple,
-                          empty_tuple,
-                          empty_tuple,
-                          empty_tuple,
-                          filename_obj,
-                          funcname_obj,
-                          line,
-                          empty_bytes);
-  Error:
-    Py_XDECREF(empty_bytes);
-    Py_XDECREF(empty_tuple);
-    Py_XDECREF(filename_obj);
-    Py_XDECREF(funcname_obj);
-    return code_obj;
-}
+// The PyFrameObject type definition (struct _frame) has been moved
+// to the internal C API: to the pycore_frame.h header file.
+// https://github.com/python/cpython/pull/31530
+#if PY_VERSION_HEX >= 0x030b00a6
+#include "internal/pycore_frame.h"
+#endif
 
+// This function is basically exactly the same with _PyTraceback_Add
+// which is available in all the versions we support.
+// We're continuing to use this because we'll probably optimize this later.
 void CPy_AddTraceback(const char *filename, const char *funcname, int line, PyObject *globals) {
     PyObject *exc, *val, *tb;
     PyThreadState *thread_state = PyThreadState_GET();
@@ -233,7 +303,7 @@ void CPy_AddTraceback(const char *filename, const char *funcname, int line, PyOb
     // FS encoding, which could have a decoder in Python. We don't do
     // that so *that* doesn't apply to us.)
     PyErr_Fetch(&exc, &val, &tb);
-    PyCodeObject *code_obj = CPy_CreateCodeObject(filename, funcname, line);
+    PyCodeObject *code_obj = PyCode_NewEmpty(filename, funcname, line);
     if (code_obj == NULL) {
         goto error;
     }
@@ -252,5 +322,24 @@ void CPy_AddTraceback(const char *filename, const char *funcname, int line, PyOb
     return;
 
 error:
+#if CPY_3_12_FEATURES
+    _PyErr_ChainExceptions1(exc);
+#else
     _PyErr_ChainExceptions(exc, val, tb);
+#endif
+}
+
+CPy_NOINLINE
+void CPy_TypeErrorTraceback(const char *filename, const char *funcname, int line,
+                            PyObject *globals, const char *expected, PyObject *value) {
+    CPy_TypeError(expected, value);
+    CPy_AddTraceback(filename, funcname, line, globals);
+}
+
+void CPy_AttributeError(const char *filename, const char *funcname, const char *classname,
+                        const char *attrname, int line, PyObject *globals) {
+    char buf[500];
+    snprintf(buf, sizeof(buf), "attribute '%.200s' of '%.200s' undefined", attrname, classname);
+    PyErr_SetString(PyExc_AttributeError, buf);
+    CPy_AddTraceback(filename, funcname, line, globals);
 }

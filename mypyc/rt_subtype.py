@@ -13,14 +13,30 @@ particular place and runtime subtyping is used to determine whether a
 coercion is necessary first.
 """
 
+from __future__ import annotations
+
 from mypyc.ir.rtypes import (
-    RType, RUnion, RInstance, RPrimitive, RTuple, RVoid, RTypeVisitor, RStruct, RArray,
-    is_int_rprimitive, is_short_int_rprimitive, is_bool_rprimitive, is_bit_rprimitive
+    RArray,
+    RInstance,
+    RPrimitive,
+    RStruct,
+    RTuple,
+    RType,
+    RTypeVisitor,
+    RUnion,
+    RVec,
+    RVoid,
+    is_bit_rprimitive,
+    is_bool_rprimitive,
+    is_int_rprimitive,
+    is_short_int_rprimitive,
 )
 from mypyc.subtype import is_subtype
 
 
 def is_runtime_subtype(left: RType, right: RType) -> bool:
+    if isinstance(right, RUnion) and not isinstance(left, RUnion):
+        return any(not item.is_unboxed and is_runtime_subtype(left, item) for item in right.items)
     return left.accept(RTSubtypeVisitor(right))
 
 
@@ -37,8 +53,12 @@ class RTSubtypeVisitor(RTypeVisitor[bool]):
     def visit_rinstance(self, left: RInstance) -> bool:
         return is_subtype(left, self.right)
 
+    def visit_rvec(self, left: RVec) -> bool:
+        # TODO: Better implementation
+        return left == self.right
+
     def visit_runion(self, left: RUnion) -> bool:
-        return is_subtype(left, self.right)
+        return not self.right.is_unboxed and is_subtype(left, self.right)
 
     def visit_rprimitive(self, left: RPrimitive) -> bool:
         if is_short_int_rprimitive(left) and is_int_rprimitive(self.right):
@@ -50,7 +70,8 @@ class RTSubtypeVisitor(RTypeVisitor[bool]):
     def visit_rtuple(self, left: RTuple) -> bool:
         if isinstance(self.right, RTuple):
             return len(self.right.types) == len(left.types) and all(
-                is_runtime_subtype(t1, t2) for t1, t2 in zip(left.types, self.right.types))
+                is_runtime_subtype(t1, t2) for t1, t2 in zip(left.types, self.right.types)
+            )
         return False
 
     def visit_rstruct(self, left: RStruct) -> bool:

@@ -1,58 +1,102 @@
 import sys
-from typing import Any, Dict, Tuple, overload
+from _typeshed import structseq
+from typing import Final, final
 
-RLIMIT_AS: int
-RLIMIT_CORE: int
-RLIMIT_CPU: int
-RLIMIT_DATA: int
-RLIMIT_FSIZE: int
-RLIMIT_MEMLOCK: int
-RLIMIT_NOFILE: int
-RLIMIT_NPROC: int
-RLIMIT_RSS: int
-RLIMIT_STACK: int
-RLIM_INFINITY: int
-RUSAGE_CHILDREN: int
-RUSAGE_SELF: int
-if sys.platform == "linux":
-    RLIMIT_MSGQUEUE: int
-    RLIMIT_NICE: int
-    RLIMIT_OFILE: int
-    RLIMIT_RTPRIO: int
-    RLIMIT_RTTIME: int
-    RLIMIT_SIGPENDING: int
-    RUSAGE_THREAD: int
+if sys.platform != "win32":
+    # Depends on resource.h
+    RLIMIT_AS: Final[int]
+    RLIMIT_CORE: Final[int]
+    RLIMIT_CPU: Final[int]
+    RLIMIT_DATA: Final[int]
+    RLIMIT_FSIZE: Final[int]
+    RLIMIT_MEMLOCK: Final[int]
+    RLIMIT_NOFILE: Final[int]
+    RLIMIT_NPROC: Final[int]
+    RLIMIT_RSS: Final[int]
+    RLIMIT_STACK: Final[int]
+    RLIM_INFINITY: Final[int]
+    if sys.version_info >= (3, 15):
+        RLIM_SAVED_CUR: Final[int]
+        RLIM_SAVED_MAX: Final[int]
+    RUSAGE_CHILDREN: Final[int]
+    RUSAGE_SELF: Final[int]
+    if sys.platform == "linux":
+        RLIMIT_MSGQUEUE: Final[int]
+        RLIMIT_NICE: Final[int]
+        RLIMIT_OFILE: Final[int]
+        RLIMIT_RTPRIO: Final[int]
+        RLIMIT_RTTIME: Final[int]
+        RLIMIT_SIGPENDING: Final[int]
+        RUSAGE_THREAD: Final[int]
+    if sys.version_info >= (3, 15) and sys.platform != "linux" and sys.platform != "darwin":
+        RLIMIT_NTHR: Final[int]
+        RLIMIT_PIPEBUF: Final[int]
+        RLIMIT_THREADS: Final[int]
+        RLIMIT_UMTXP: Final[int]
 
-_Tuple16 = Tuple[float, float, int, int, int, int, int, int, int, int, int, int, int, int, int, int]
+    @final
+    class struct_rusage(
+        structseq[float], tuple[float, float, int, int, int, int, int, int, int, int, int, int, int, int, int, int]
+    ):
+        __match_args__: Final = (
+            "ru_utime",
+            "ru_stime",
+            "ru_maxrss",
+            "ru_ixrss",
+            "ru_idrss",
+            "ru_isrss",
+            "ru_minflt",
+            "ru_majflt",
+            "ru_nswap",
+            "ru_inblock",
+            "ru_oublock",
+            "ru_msgsnd",
+            "ru_msgrcv",
+            "ru_nsignals",
+            "ru_nvcsw",
+            "ru_nivcsw",
+        )
 
-class struct_rusage(_Tuple16):
-    def __new__(cls, sequence: _Tuple16, dict: Dict[str, Any] = ...) -> struct_rusage: ...
-    ru_utime: float
-    ru_stime: float
-    ru_maxrss: int
-    ru_ixrss: int
-    ru_idrss: int
-    ru_isrss: int
-    ru_minflt: int
-    ru_majflt: int
-    ru_nswap: int
-    ru_inblock: int
-    ru_oublock: int
-    ru_msgsnd: int
-    ru_msgrcv: int
-    ru_nsignals: int
-    ru_nvcsw: int
-    ru_nivcsw: int
+        @property
+        def ru_utime(self) -> float: ...
+        @property
+        def ru_stime(self) -> float: ...
+        @property
+        def ru_maxrss(self) -> int: ...
+        @property
+        def ru_ixrss(self) -> int: ...
+        @property
+        def ru_idrss(self) -> int: ...
+        @property
+        def ru_isrss(self) -> int: ...
+        @property
+        def ru_minflt(self) -> int: ...
+        @property
+        def ru_majflt(self) -> int: ...
+        @property
+        def ru_nswap(self) -> int: ...
+        @property
+        def ru_inblock(self) -> int: ...
+        @property
+        def ru_oublock(self) -> int: ...
+        @property
+        def ru_msgsnd(self) -> int: ...
+        @property
+        def ru_msgrcv(self) -> int: ...
+        @property
+        def ru_nsignals(self) -> int: ...
+        @property
+        def ru_nvcsw(self) -> int: ...
+        @property
+        def ru_nivcsw(self) -> int: ...
 
-def getpagesize() -> int: ...
-def getrlimit(__resource: int) -> Tuple[int, int]: ...
-def getrusage(__who: int) -> struct_rusage: ...
-def setrlimit(__resource: int, __limits: Tuple[int, int]) -> None: ...
-
-if sys.platform == "linux":
-    @overload
-    def prlimit(pid: int, resource: int, limits: Tuple[int, int]) -> Tuple[int, int]: ...
-    @overload
-    def prlimit(pid: int, resource: int) -> Tuple[int, int]: ...
-
-error = OSError
+    def getpagesize() -> int: ...
+    def getrlimit(resource: int, /) -> tuple[int, int]: ...
+    def getrusage(who: int, /) -> struct_rusage: ...
+    def setrlimit(resource: int, limits: tuple[int, int], /) -> None: ...
+    if sys.platform == "linux":
+        if sys.version_info >= (3, 12):
+            def prlimit(pid: int, resource: int, limits: tuple[int, int] | None = None, /) -> tuple[int, int]: ...
+        else:
+            def prlimit(pid: int, resource: int, limits: tuple[int, int] = ..., /) -> tuple[int, int]: ...
+    error = OSError

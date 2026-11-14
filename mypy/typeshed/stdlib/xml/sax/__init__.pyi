@@ -1,33 +1,42 @@
 import sys
-from typing import IO, Any, Iterable, List, NoReturn, Optional, Text, Union
-from xml.sax.handler import ContentHandler, ErrorHandler
-from xml.sax.xmlreader import Locator, XMLReader
+from _typeshed import ReadableBuffer, StrPath, SupportsRead, _T_co
+from collections.abc import Iterable
+from typing import Final, Protocol, TypeAlias, type_check_only
+from xml.sax._exceptions import (
+    SAXException as SAXException,
+    SAXNotRecognizedException as SAXNotRecognizedException,
+    SAXNotSupportedException as SAXNotSupportedException,
+    SAXParseException as SAXParseException,
+    SAXReaderNotAvailable as SAXReaderNotAvailable,
+)
+from xml.sax.handler import ContentHandler as ContentHandler, ErrorHandler as ErrorHandler
+from xml.sax.xmlreader import InputSource as InputSource, XMLReader
 
-class SAXException(Exception):
-    def __init__(self, msg: str, exception: Optional[Exception] = ...) -> None: ...
-    def getMessage(self) -> str: ...
-    def getException(self) -> Exception: ...
-    def __getitem__(self, ix: Any) -> NoReturn: ...
+@type_check_only
+class _SupportsReadClose(SupportsRead[_T_co], Protocol[_T_co]):
+    def close(self) -> None: ...
 
-class SAXParseException(SAXException):
-    def __init__(self, msg: str, exception: Exception, locator: Locator) -> None: ...
-    def getColumnNumber(self) -> int: ...
-    def getLineNumber(self) -> int: ...
-    def getPublicId(self): ...
-    def getSystemId(self): ...
+_Source: TypeAlias = StrPath | _SupportsReadClose[bytes] | _SupportsReadClose[str]
 
-class SAXNotRecognizedException(SAXException): ...
-class SAXNotSupportedException(SAXException): ...
-class SAXReaderNotAvailable(SAXNotSupportedException): ...
+default_parser_list: Final[list[str]]
 
-default_parser_list: List[str]
-
-if sys.version_info >= (3, 8):
-    def make_parser(parser_list: Iterable[str] = ...) -> XMLReader: ...
-
-else:
-    def make_parser(parser_list: List[str] = ...) -> XMLReader: ...
-
-def parse(source: Union[str, IO[str], IO[bytes]], handler: ContentHandler, errorHandler: ErrorHandler = ...) -> None: ...
-def parseString(string: Union[bytes, Text], handler: ContentHandler, errorHandler: Optional[ErrorHandler] = ...) -> None: ...
+def make_parser(parser_list: Iterable[str] = ()) -> XMLReader: ...
+def parse(source: _Source, handler: ContentHandler, errorHandler: ErrorHandler = ...) -> None: ...
+def parseString(string: ReadableBuffer | str, handler: ContentHandler, errorHandler: ErrorHandler | None = ...) -> None: ...
 def _create_parser(parser_name: str) -> XMLReader: ...
+
+if sys.version_info >= (3, 14):
+    __all__ = [
+        "ContentHandler",
+        "ErrorHandler",
+        "InputSource",
+        "SAXException",
+        "SAXNotRecognizedException",
+        "SAXNotSupportedException",
+        "SAXParseException",
+        "SAXReaderNotAvailable",
+        "default_parser_list",
+        "make_parser",
+        "parse",
+        "parseString",
+    ]

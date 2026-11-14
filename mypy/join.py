@@ -1,75 +1,231 @@
 """Calculation of the least upper bound types (joins)."""
 
-from mypy.ordered_dict import OrderedDict
-from typing import List, Optional
+from __future__ import annotations
 
-from mypy.types import (
-    Type, AnyType, NoneType, TypeVisitor, Instance, UnboundType, TypeVarType, CallableType,
-    TupleType, TypedDictType, ErasedType, UnionType, FunctionLike, Overloaded, LiteralType,
-    PartialType, DeletedType, UninhabitedType, TypeType, TypeOfAny, get_proper_type,
-    ProperType, get_proper_types, TypeAliasType
-)
-from mypy.maptype import map_instance_to_supertype
-from mypy.subtypes import (
-    is_subtype, is_equivalent, is_subtype_ignoring_tvars, is_proper_subtype,
-    is_protocol_implementation, find_member
-)
-from mypy.nodes import ARG_NAMED, ARG_NAMED_OPT
+from collections.abc import Sequence
+from typing import overload
+
 import mypy.typeops
-from mypy import state
+from mypy.expandtype import expand_type
+from mypy.maptype import map_instance_to_supertype
+from mypy.nodes import (
+    ARG_NAMED,
+    ARG_POS,
+    CONTRAVARIANT,
+    COVARIANT,
+    INVARIANT,
+    VARIANCE_NOT_READY,
+    ArgKind,
+    TypeInfo,
+)
+from mypy.state import state
+from mypy.subtypes import (
+    SubtypeContext,
+    find_member,
+    is_equivalent,
+    is_proper_subtype,
+    is_protocol_implementation,
+    is_subtype,
+)
+from mypy.types import (
+    AnyType,
+    CallableType,
+    DeletedType,
+    ErasedType,
+    FunctionLike,
+    Instance,
+    LiteralType,
+    NoneType,
+    Overloaded,
+    Parameters,
+    ParamSpecType,
+    PartialType,
+    ProperType,
+    TupleType,
+    Type,
+    TypeAliasType,
+    TypedDictItem,
+    TypedDictType,
+    TypeOfAny,
+    TypeType,
+    TypeVarId,
+    TypeVarLikeType,
+    TypeVarTupleType,
+    TypeVarType,
+    TypeVisitor,
+    UnboundType,
+    UninhabitedType,
+    UnionType,
+    UnpackType,
+    find_unpack_in_list,
+    get_proper_type,
+    get_proper_types,
+    split_with_prefix_and_suffix,
+)
+from mypy.typestate import type_state
 
 
-def join_simple(declaration: Optional[Type], s: Type, t: Type) -> ProperType:
-    """Return a simple least upper bound given the declared type."""
-    # TODO: check infinite recursion for aliases here.
-    declaration = get_proper_type(declaration)
-    s = get_proper_type(s)
-    t = get_proper_type(t)
+class InstanceJoiner:
+    def __init__(self) -> None:
+        self.seen_instances: list[tuple[Instance, Instance]] = []
 
-    if (s.can_be_true, s.can_be_false) != (t.can_be_true, t.can_be_false):
-        # if types are restricted in different ways, use the more general versions
-        s = mypy.typeops.true_or_false(s)
-        t = mypy.typeops.true_or_false(t)
+    def join_instances(self, t: Instance, s: Instance) -> ProperType:
+        if (t, s) in self.seen_instances or (s, t) in self.seen_instances:
+            return object_from_instance(t)
 
-    if isinstance(s, AnyType):
-        return s
+        self.seen_instances.append((t, s))
 
-    if isinstance(s, ErasedType):
-        return t
+        # Calculate the join of two instance types
+        if t.type == s.type:
+            # Simplest case: join two types with the same base type (but
+            # potentially different arguments).
 
-    if is_proper_subtype(s, t):
-        return t
+            # Combine type arguments.
+            args: list[Type] = []
+            # N.B: We use zip instead of indexing because the lengths might have
+            # mismatches during daemon reprocessing.
+            if t.type.has_type_var_tuple_type:
+                # We handle joins of variadic instances by simply creating correct mapping
+                # for type arguments and compute the individual joins same as for regular
+                # instances. All the heavy lifting is done in the join of tuple types.
+                assert s.type.type_var_tuple_prefix is not None
+                assert s.type.type_var_tuple_suffix is not None
+                prefix = s.type.type_var_tuple_prefix
+                suffix = s.type.type_var_tuple_suffix
+                tvt = s.type.defn.type_vars[prefix]
+                assert isinstance(tvt, TypeVarTupleType)
+                fallback = tvt.tuple_fallback
+                s_prefix, s_middle, s_suffix = split_with_prefix_and_suffix(s.args, prefix, suffix)
+                t_prefix, t_middle, t_suffix = split_with_prefix_and_suffix(t.args, prefix, suffix)
+                s_args = s_prefix + (TupleType(list(s_middle), fallback),) + s_suffix
+                t_args = t_prefix + (TupleType(list(t_middle), fallback),) + t_suffix
+            else:
+                t_args = t.args
+                s_args = s.args
+            for ta, sa, type_var in zip(t_args, s_args, t.type.defn.type_vars):
+                ta_proper = get_proper_type(ta)
+                sa_proper = get_proper_type(sa)
+                new_type: Type | None = None
+                if isinstance(ta_proper, AnyType):
+                    new_type = AnyType(TypeOfAny.from_another_any, ta_proper)
+                elif isinstance(sa_proper, AnyType):
+                    new_type = AnyType(TypeOfAny.from_another_any, sa_proper)
+                elif isinstance(type_var, TypeVarType):
+                    if type_var.variance in (COVARIANT, VARIANCE_NOT_READY):
+                        new_type = join_types(ta, sa, self)
+                        if len(type_var.values) != 0 and new_type not in type_var.values:
+                            self.seen_instances.pop()
+                            return object_from_instance(t)
+                        if not is_subtype(new_type, type_var.upper_bound):
+                            self.seen_instances.pop()
+                            return object_from_instance(t)
+                    # TODO: contravariant case should use meet but pass seen instances as
+                    # an argument to keep track of recursive checks.
+                    elif type_var.variance in (INVARIANT, CONTRAVARIANT):
+                        if isinstance(ta_proper, UninhabitedType) and ta_proper.ambiguous:
+                            new_type = sa
+                        elif isinstance(sa_proper, UninhabitedType) and sa_proper.ambiguous:
+                            new_type = ta
+                        elif not is_equivalent(ta, sa):
+                            self.seen_instances.pop()
+                            return object_from_instance(t)
+                        else:
+                            # If the types are different but equivalent, then an Any is involved
+                            # so using a join in the contravariant case is also OK.
+                            new_type = join_types(ta, sa, self)
+                elif isinstance(type_var, TypeVarTupleType):
+                    new_type = get_proper_type(join_types(ta, sa, self))
+                    # Put the joined arguments back into instance in the normal form:
+                    #   a) Tuple[X, Y, Z] -> [X, Y, Z]
+                    #   b) tuple[X, ...] -> [*tuple[X, ...]]
+                    if isinstance(new_type, Instance):
+                        assert new_type.type.fullname == "builtins.tuple"
+                        new_type = UnpackType(new_type)
+                    else:
+                        assert isinstance(new_type, TupleType)
+                        args.extend(new_type.items)
+                        continue
+                else:
+                    # ParamSpec type variables behave the same, independent of variance
+                    if not is_equivalent(ta, sa):
+                        return get_proper_type(type_var.upper_bound)
+                    new_type = join_types(ta, sa, self)
+                assert new_type is not None
+                args.append(new_type)
+            result: ProperType = Instance(t.type, args)
+        elif t.type.bases and is_proper_subtype(
+            t, s, subtype_context=SubtypeContext(ignore_type_params=True)
+        ):
+            result = self.join_instances_via_supertype(t, s)
+        else:
+            # Now t is not a subtype of s, and t != s. Now s could be a subtype
+            # of t; alternatively, we need to find a common supertype. This works
+            # in of the both cases.
+            result = self.join_instances_via_supertype(s, t)
 
-    if is_proper_subtype(t, s):
-        return s
+        self.seen_instances.pop()
+        return result
 
-    if isinstance(declaration, UnionType):
-        return mypy.typeops.make_simplified_union([s, t])
+    def join_instances_via_supertype(self, t: Instance, s: Instance) -> ProperType:
+        # Give preference to joins via duck typing relationship, so that
+        # join(int, float) == float, for example.
+        for p in t.type._promote:
+            if is_subtype(p, s):
+                return join_types(p, s, self)
+        for p in s.type._promote:
+            if is_subtype(p, t):
+                return join_types(t, p, self)
 
-    if isinstance(s, NoneType) and not isinstance(t, NoneType):
-        s, t = t, s
+        # Compute the "best" supertype of t when joined with s.
+        # The definition of "best" may evolve; for now it is the one with
+        # the longest MRO.  Ties are broken by using the earlier base.
 
-    if isinstance(s, UninhabitedType) and not isinstance(t, UninhabitedType):
-        s, t = t, s
+        # Go over both sets of bases in case there's an explicit Protocol base. This is important
+        # to ensure commutativity of join (although in cases where both classes have relevant
+        # Protocol bases this maybe might still not be commutative)
+        base_types: dict[TypeInfo, None] = {}  # dict to deduplicate but preserve order
+        for base in t.type.bases:
+            base_types[base.type] = None
+        for base in s.type.bases:
+            if base.type.is_protocol and is_subtype(t, base):
+                base_types[base.type] = None
 
-    value = t.accept(TypeJoinVisitor(s))
-    if declaration is None or is_subtype(value, declaration):
-        return value
+        best: ProperType | None = None
+        for base_type in base_types:
+            mapped = map_instance_to_supertype(t, base_type)
+            res = self.join_instances(mapped, s)
+            if best is None or is_better(res, best):
+                best = res
+        assert best is not None
+        for promote in t.type._promote:
+            if isinstance(promote, Instance):
+                res = self.join_instances(promote, s)
+                if is_better(res, best):
+                    best = res
+        return best
 
-    return declaration
 
-
-def trivial_join(s: Type, t: Type) -> ProperType:
+def trivial_join(s: Type, t: Type) -> Type:
     """Return one of types (expanded) if it is a supertype of other, otherwise top type."""
     if is_subtype(s, t):
-        return get_proper_type(t)
+        return t
     elif is_subtype(t, s):
-        return get_proper_type(s)
+        return s
     else:
         return object_or_any_from_type(get_proper_type(t))
 
 
-def join_types(s: Type, t: Type) -> ProperType:
+@overload
+def join_types(
+    s: ProperType, t: ProperType, instance_joiner: InstanceJoiner | None = None
+) -> ProperType: ...
+
+
+@overload
+def join_types(s: Type, t: Type, instance_joiner: InstanceJoiner | None = None) -> Type: ...
+
+
+def join_types(s: Type, t: Type, instance_joiner: InstanceJoiner | None = None) -> Type:
     """Return the least upper bound of s and t.
 
     For example, the join of 'int' and 'object' is 'object'.
@@ -86,14 +242,16 @@ def join_types(s: Type, t: Type) -> ProperType:
         s = mypy.typeops.true_or_false(s)
         t = mypy.typeops.true_or_false(t)
 
+    if isinstance(s, UnionType) and not isinstance(t, UnionType):
+        s, t = t, s
+
     if isinstance(s, AnyType):
-        return s
+        if isinstance(t, AnyType):
+            return s
+        s, t = t, s
 
     if isinstance(s, ErasedType):
         return t
-
-    if isinstance(s, UnionType) and not isinstance(t, UnionType):
-        s, t = t, s
 
     if isinstance(s, NoneType) and not isinstance(t, NoneType):
         s, t = t, s
@@ -101,8 +259,11 @@ def join_types(s: Type, t: Type) -> ProperType:
     if isinstance(s, UninhabitedType) and not isinstance(t, UninhabitedType):
         s, t = t, s
 
+    # Meets/joins require callable type normalization.
+    s, t = normalize_callables(s, t)
+
     # Use a visitor to handle non-trivial cases.
-    return t.accept(TypeJoinVisitor(s))
+    return t.accept(TypeJoinVisitor(s, instance_joiner))
 
 
 class TypeJoinVisitor(TypeVisitor[ProperType]):
@@ -112,8 +273,9 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
       s: The other (left) type operand.
     """
 
-    def __init__(self, s: ProperType) -> None:
+    def __init__(self, s: ProperType, instance_joiner: InstanceJoiner | None = None) -> None:
         self.s = s
+        self.instance_joiner = instance_joiner
 
     def visit_unbound_type(self, t: UnboundType) -> ProperType:
         return AnyType(TypeOfAny.special_form)
@@ -125,7 +287,16 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
             return mypy.typeops.make_simplified_union([self.s, t])
 
     def visit_any(self, t: AnyType) -> ProperType:
-        return t
+        if type_state.allow_any_join:
+            return t
+        if isinstance(self.s, Instance) and self.s.type.fullname == "builtins.object":
+            return self.s
+        if isinstance(self.s, UnionType) and any(
+            isinstance(get_proper_type(it), AnyType) for it in self.s.items
+        ):
+            # Avoid multiple Anys in a union type.
+            return self.s
+        return UnionType([self.s, t])
 
     def visit_none_type(self, t: NoneType) -> ProperType:
         if state.strict_optional:
@@ -148,15 +319,57 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
         return self.s
 
     def visit_type_var(self, t: TypeVarType) -> ProperType:
-        if isinstance(self.s, TypeVarType) and self.s.id == t.id:
+        if isinstance(self.s, TypeVarType):
+            if self.s.id == t.id:
+                if self.s.upper_bound == t.upper_bound:
+                    return self.s
+                return self.s.copy_modified(
+                    upper_bound=join_types(self.s.upper_bound, t.upper_bound)
+                )
+            # Fix non-commutative joins
+            return get_proper_type(join_types(self.s.upper_bound, t.upper_bound))
+        else:
+            return self.default(self.s)
+
+    def visit_param_spec(self, t: ParamSpecType) -> ProperType:
+        if self.s == t:
+            return t
+        return self.default(self.s)
+
+    def visit_type_var_tuple(self, t: TypeVarTupleType) -> ProperType:
+        if self.s == t:
+            return t
+        if isinstance(self.s, Instance) and is_subtype(t.upper_bound, self.s):
+            # TODO: should we do this more generally and for all TypeVarLikeTypes?
             return self.s
+        return self.default(self.s)
+
+    def visit_unpack_type(self, t: UnpackType) -> UnpackType:
+        raise NotImplementedError
+
+    def visit_parameters(self, t: Parameters) -> ProperType:
+        if isinstance(self.s, Parameters):
+            if not is_similar_callables(t, self.s):
+                # TODO: it would be prudent to return [*object, **object] instead of Any.
+                return self.default(self.s)
+            from mypy.meet import meet_types
+
+            return t.copy_modified(
+                arg_types=[
+                    meet_types(s_a, t_a) for s_a, t_a in zip(self.s.arg_types, t.arg_types)
+                ],
+                arg_kinds=combine_arg_kinds(self.s, t),
+                arg_names=combine_arg_names(self.s, t),
+            )
         else:
             return self.default(self.s)
 
     def visit_instance(self, t: Instance) -> ProperType:
         if isinstance(self.s, Instance):
-            nominal = join_instances(t, self.s)
-            structural = None  # type: Optional[Instance]
+            if self.instance_joiner is None:
+                self.instance_joiner = InstanceJoiner()
+            nominal = self.instance_joiner.join_instances(t, self.s)
+            structural: Instance | None = None
             if t.type.is_protocol and is_protocol_implementation(self.s, t):
                 structural = t
             elif self.s.type.is_protocol and is_protocol_implementation(t, self.s):
@@ -181,24 +394,38 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
             return join_types(t, self.s)
         elif isinstance(self.s, LiteralType):
             return join_types(t, self.s)
+        elif isinstance(self.s, TypeVarTupleType) and is_subtype(self.s.upper_bound, t):
+            return t
         else:
             return self.default(self.s)
 
     def visit_callable_type(self, t: CallableType) -> ProperType:
-        if isinstance(self.s, CallableType) and is_similar_callables(t, self.s):
-            if is_equivalent(t, self.s):
-                return combine_similar_callables(t, self.s)
-            result = join_similar_callables(t, self.s)
-            # We set the from_type_type flag to suppress error when a collection of
-            # concrete class objects gets inferred as their common abstract superclass.
-            if not ((t.is_type_obj() and t.type_object().is_abstract) or
-                    (self.s.is_type_obj() and self.s.type_object().is_abstract)):
-                result.from_type_type = True
-            if any(isinstance(tp, (NoneType, UninhabitedType))
-                   for tp in get_proper_types(result.arg_types)):
-                # We don't want to return unusable Callable, attempt fallback instead.
+        if isinstance(self.s, CallableType):
+            if is_similar_callables(t, self.s):
+                result = join_similar_callables(t, self.s)
+                if any(
+                    isinstance(tp, (NoneType, UninhabitedType))
+                    for tp in get_proper_types(result.arg_types)
+                ):
+                    # We don't want to return unusable Callable, attempt fallback instead.
+                    return join_types(t.fallback, self.s)
+                # We set the from_type_type flag to suppress error when a collection of
+                # concrete class objects gets inferred as their common abstract superclass.
+                if not (
+                    (t.is_type_obj() and t.type_object().is_abstract)
+                    or (self.s.is_type_obj() and self.s.type_object().is_abstract)
+                ):
+                    result.from_type_type = True
+                return result
+            else:
+                s2, t2 = self.s, t
+                if t2.is_var_arg:
+                    s2, t2 = t2, s2
+                if is_subtype(s2, t2):
+                    return t2.copy_modified()
+                elif is_subtype(t2, s2):
+                    return s2.copy_modified()
                 return join_types(t.fallback, self.s)
-            return result
         elif isinstance(self.s, Overloaded):
             # Switch the order of arguments to that we'll get to visit_overloaded.
             return join_types(t, self.s)
@@ -237,15 +464,15 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
         #       Ov([Any, int] -> Any, [Any, int] -> Any)
         #
         # TODO: Consider more cases of callable subtyping.
-        result = []  # type: List[CallableType]
+        result: list[CallableType] = []
         s = self.s
         if isinstance(s, FunctionLike):
             # The interesting case where both types are function types.
-            for t_item in t.items():
-                for s_item in s.items():
+            for t_item in t.items:
+                for s_item in s.items:
                     if is_similar_callables(t_item, s_item):
                         if is_equivalent(t_item, s_item):
-                            result.append(combine_similar_callables(t_item, s_item))
+                            result.append(join_similar_callables(t_item, s_item))
                         elif is_subtype(t_item, s_item):
                             result.append(s_item)
             if result:
@@ -261,6 +488,113 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
                 return join_types(t, call)
         return join_types(t.fallback, s)
 
+    def join_tuples(self, s: TupleType, t: TupleType) -> list[Type] | None:
+        """Join two tuple types while handling variadic entries.
+
+        This is surprisingly tricky, and we don't handle some tricky corner cases.
+        Most of the trickiness comes from the variadic tuple items like *tuple[X, ...]
+        since they can have arbitrary partial overlaps (while *Ts can't be split).
+        """
+        s_unpack_index = find_unpack_in_list(s.items)
+        t_unpack_index = find_unpack_in_list(t.items)
+        if s_unpack_index is None and t_unpack_index is None:
+            if s.length() == t.length():
+                items: list[Type] = []
+                for i in range(t.length()):
+                    items.append(join_types(t.items[i], s.items[i]))
+                return items
+            return None
+        if s_unpack_index is not None and t_unpack_index is not None:
+            # The most complex case: both tuples have an unpack item.
+            s_unpack = s.items[s_unpack_index]
+            assert isinstance(s_unpack, UnpackType)
+            s_unpacked = get_proper_type(s_unpack.type)
+            t_unpack = t.items[t_unpack_index]
+            assert isinstance(t_unpack, UnpackType)
+            t_unpacked = get_proper_type(t_unpack.type)
+            if s.length() == t.length() and s_unpack_index == t_unpack_index:
+                # We can handle a case where arity is perfectly aligned, e.g.
+                # join(Tuple[X1, *tuple[Y1, ...], Z1], Tuple[X2, *tuple[Y2, ...], Z2]).
+                # We can essentially perform the join elementwise.
+                prefix_len = t_unpack_index
+                suffix_len = t.length() - t_unpack_index - 1
+                items = []
+                for si, ti in zip(s.items[:prefix_len], t.items[:prefix_len]):
+                    items.append(join_types(si, ti))
+                joined = join_types(s_unpacked, t_unpacked)
+                if isinstance(joined, TypeVarTupleType):
+                    items.append(UnpackType(joined))
+                elif isinstance(joined, Instance) and joined.type.fullname == "builtins.tuple":
+                    items.append(UnpackType(joined))
+                else:
+                    if isinstance(t_unpacked, Instance):
+                        assert t_unpacked.type.fullname == "builtins.tuple"
+                        tuple_instance = t_unpacked
+                    else:
+                        assert isinstance(t_unpacked, TypeVarTupleType)
+                        tuple_instance = t_unpacked.tuple_fallback
+                    items.append(
+                        UnpackType(
+                            tuple_instance.copy_modified(
+                                args=[object_from_instance(tuple_instance)]
+                            )
+                        )
+                    )
+                if suffix_len:
+                    for si, ti in zip(s.items[-suffix_len:], t.items[-suffix_len:]):
+                        items.append(join_types(si, ti))
+                return items
+            if s.length() == 1 or t.length() == 1:
+                # Another case we can handle is when one of tuple is purely variadic
+                # (i.e. a non-normalized form of tuple[X, ...]), in this case the join
+                # will be again purely variadic.
+                if not (isinstance(s_unpacked, Instance) and isinstance(t_unpacked, Instance)):
+                    return None
+                assert s_unpacked.type.fullname == "builtins.tuple"
+                assert t_unpacked.type.fullname == "builtins.tuple"
+                mid_joined = join_types(s_unpacked.args[0], t_unpacked.args[0])
+                t_other = [a for i, a in enumerate(t.items) if i != t_unpack_index]
+                s_other = [a for i, a in enumerate(s.items) if i != s_unpack_index]
+                other_joined = join_type_list(s_other + t_other)
+                mid_joined = join_types(mid_joined, other_joined)
+                return [UnpackType(s_unpacked.copy_modified(args=[mid_joined]))]
+            # TODO: are there other case we can handle (e.g. both prefix/suffix are shorter)?
+            return None
+        if s_unpack_index is not None:
+            variadic = s
+            unpack_index = s_unpack_index
+            fixed = t
+        else:
+            assert t_unpack_index is not None
+            variadic = t
+            unpack_index = t_unpack_index
+            fixed = s
+        # Case where one tuple has variadic item and the other one doesn't. The join will
+        # be variadic, since fixed tuple is a subtype of variadic, but not vice versa.
+        unpack = variadic.items[unpack_index]
+        assert isinstance(unpack, UnpackType)
+        unpacked = get_proper_type(unpack.type)
+        if not isinstance(unpacked, Instance):
+            return None
+        if fixed.length() < variadic.length() - 1:
+            # There are no non-trivial types that are supertype of both.
+            return None
+        prefix_len = unpack_index
+        suffix_len = variadic.length() - prefix_len - 1
+        prefix, middle, suffix = split_with_prefix_and_suffix(
+            tuple(fixed.items), prefix_len, suffix_len
+        )
+        items = []
+        for fi, vi in zip(prefix, variadic.items[:prefix_len]):
+            items.append(join_types(fi, vi))
+        mid_joined = join_type_list(list(middle))
+        mid_joined = join_types(mid_joined, unpacked.args[0])
+        items.append(UnpackType(unpacked.copy_modified(args=[mid_joined])))
+        if suffix_len:
+            for fi, vi in zip(suffix, variadic.items[-suffix_len:]):
+                items.append(join_types(fi, vi))
+        return items
+
     def visit_tuple_type(self, t: TupleType) -> ProperType:
         # When given two fixed-length tuples:
         # * If they have the same length, join their subtypes item-wise:
@@ -273,34 +607,85 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
         #   Tuple[int, bool] + Tuple[bool, ...] becomes Tuple[int, ...]
         # * Joining with any Sequence also returns a Sequence:
         #   Tuple[int, bool] + List[bool] becomes Sequence[int]
-        if isinstance(self.s, TupleType) and self.s.length() == t.length():
-            fallback = join_instances(mypy.typeops.tuple_fallback(self.s),
-                                      mypy.typeops.tuple_fallback(t))
+        if isinstance(self.s, TupleType):
+            if self.instance_joiner is None:
+                self.instance_joiner = InstanceJoiner()
+            fallback = self.instance_joiner.join_instances(
+                mypy.typeops.tuple_fallback(self.s), mypy.typeops.tuple_fallback(t)
+            )
             assert isinstance(fallback, Instance)
-            if self.s.length() == t.length():
-                items = []  # type: List[Type]
-                for i in range(t.length()):
-                    items.append(self.join(t.items[i], self.s.items[i]))
+            items = self.join_tuples(self.s, t)
+            if items is not None:
+                if len(items) == 1 and isinstance(item := items[0], UnpackType):
+                    if isinstance(unpacked := get_proper_type(item.type), Instance):
+                        # Avoid double-wrapping tuple[*tuple[X, ...]]
+                        return unpacked
                 return TupleType(items, fallback)
             else:
+                # TODO: should this be a default fallback behaviour like for meet?
+                if is_proper_subtype(self.s, t):
+                    return t
+                if is_proper_subtype(t, self.s):
+                    return self.s
                 return fallback
         else:
             return join_types(self.s, mypy.typeops.tuple_fallback(t))
 
+    def resolve_typeddict_item(
+        self, item_name: str, s: TypedDictItem, t: TypedDictItem
+    ) -> tuple[Type | None, bool, bool]:
+        """Return the type, requiredness, and readonlyness of a join item.
+
+        If the type is None, the item should be omitted from the join keys.
+        """
+        is_required = s.required and t.required
+
+        if s.typ is None or t.typ is None:
+            # Key is implicitly NotRequired[ReadOnly[object]] in one type and
+            # (object join T) == object. Omitting it in the join leaves it implicitly
+            # of object type.
+            join_type = None
+            is_readonly = True
+        else:
+            join_type = join_types(s.typ, t.typ)
+
+            if s.required != t.required:
+                # As one of the input types marks the key as not required, it must
+                # be not required in the join supertype. However, as the other input
+                # type does not have a delitem overload for the key, the delitem
+                # overload must be omitted in the join supertype too. This can only
+                # be done by marking the key as readonly.
+                is_readonly = True
+            elif s.readonly or t.readonly:
+                # If either type has no setitem overload for this key,
+                # then the join supertype must also omit it
+                is_readonly = True
+            else:
+                is_readonly = not is_equivalent(s.typ, t.typ)
+
+        return join_type, is_required, is_readonly
+
     def visit_typeddict_type(self, t: TypedDictType) -> ProperType:
         if isinstance(self.s, TypedDictType):
-            items = OrderedDict([
-                (item_name, s_item_type)
-                for (item_name, s_item_type, t_item_type) in self.s.zip(t)
-                if (is_equivalent(s_item_type, t_item_type) and
-                    (item_name in t.required_keys) == (item_name in self.s.required_keys))
-            ])
-            mapping_value_type = join_type_list(list(items.values()))
-            fallback = self.s.create_anonymous_fallback(value_type=mapping_value_type)
-            # We need to filter by items.keys() since some required keys present in both t and
-            # self.s might be missing from the join if the types are incompatible.
-            required_keys = set(items.keys()) & t.required_keys & self.s.required_keys
-            return TypedDictType(items, required_keys, fallback)
+            items = {}
+            required_keys = set()
+            readonly_keys = set()
+            for item_name, s_item, t_item in self.s.zipall(t):
+                item_type, is_required, is_readonly = self.resolve_typeddict_item(
+                    item_name, s_item, t_item
+                )
+                if item_type is not None:
+                    items[item_name] = item_type
+                    if is_required:
+                        required_keys.add(item_name)
+                    if is_readonly:
+                        readonly_keys.add(item_name)
+
+            fallback = self.s.create_anonymous_fallback()
+            is_closed = self.s.is_closed and t.is_closed
+            return TypedDictType(
+                items, required_keys, readonly_keys, fallback, is_closed=is_closed
+            )
         elif isinstance(self.s, Instance):
             return join_types(self.s, t.fallback)
         else:
@@ -313,6 +698,8 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
             if self.s.fallback.type.is_enum and t.fallback.type.is_enum:
                 return mypy.typeops.make_simplified_union([self.s, t])
             return join_types(self.s.fallback, t.fallback)
+        elif isinstance(self.s, Instance) and self.s.last_known_value == t:
+            return t
         else:
             return join_types(self.s, t.fallback)
 
@@ -323,22 +710,25 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
 
     def visit_type_type(self, t: TypeType) -> ProperType:
         if isinstance(self.s, TypeType):
-            return TypeType.make_normalized(self.join(t.item, self.s.item), line=t.line)
-        elif isinstance(self.s, Instance) and self.s.type.fullname == 'builtins.type':
+            return TypeType.make_normalized(
+                join_types(t.item, self.s.item),
+                line=t.line,
+                is_type_form=self.s.is_type_form or t.is_type_form,
+            )
+        elif isinstance(self.s, Instance) and self.s.type.fullname == "builtins.type":
             return self.s
         else:
             return self.default(self.s)
 
     def visit_type_alias_type(self, t: TypeAliasType) -> ProperType:
-        assert False, "This should be never called, got {}".format(t)
-
-    def join(self, s: Type, t: Type) -> ProperType:
-        return join_types(s, t)
+        assert False, f"This should be never called, got {t}"
 
     def default(self, typ: Type) -> ProperType:
         typ = get_proper_type(typ)
         if isinstance(typ, Instance):
             return object_from_instance(typ)
+        elif isinstance(typ, TypeType):
+            return self.default(typ.item)
         elif isinstance(typ, UnboundType):
             return AnyType(TypeOfAny.special_form)
         elif isinstance(typ, TupleType):
@@ -349,58 +739,10 @@ class TypeJoinVisitor(TypeVisitor[ProperType]):
             return self.default(typ.fallback)
         elif isinstance(typ, TypeVarType):
             return self.default(typ.upper_bound)
+        elif isinstance(typ, ParamSpecType):
+            return self.default(typ.upper_bound)
         else:
             return AnyType(TypeOfAny.special_form)
-
-
-def join_instances(t: Instance, s: Instance) -> ProperType:
-    """Calculate the join of two instance types."""
-    if t.type == s.type:
-        # Simplest case: join two types with the same base type (but
-        # potentially different arguments).
-        if is_subtype(t, s) or is_subtype(s, t):
-            # Compatible; combine type arguments.
-            args = []  # type: List[Type]
-            # N.B: We use zip instead of indexing because the lengths might have
-            # mismatches during daemon reprocessing.
-            for ta, sa in zip(t.args, s.args):
-                args.append(join_types(ta, sa))
-            return Instance(t.type, args)
-        else:
-            # Incompatible; return trivial result object.
-            return object_from_instance(t)
-    elif t.type.bases and is_subtype_ignoring_tvars(t, s):
-        return join_instances_via_supertype(t, s)
-    else:
-        # Now t is not a subtype of s, and t != s. Now s could be a subtype
-        # of t; alternatively, we need to find a common supertype. This works
-        # in of the both cases.
-        return join_instances_via_supertype(s, t)
-
-
-def join_instances_via_supertype(t: Instance, s: Instance) -> ProperType:
-    # Give preference to joins via duck typing relationship, so that
-    # join(int, float) == float, for example.
-    if t.type._promote and is_subtype(t.type._promote, s):
-        return join_types(t.type._promote, s)
-    elif s.type._promote and is_subtype(s.type._promote, t):
-        return join_types(t, s.type._promote)
-    # Compute the "best" supertype of t when joined with s.
-    # The definition of "best" may evolve; for now it is the one with
-    # the longest MRO.  Ties are broken by using the earlier base.
-    best = None  # type: Optional[ProperType]
-    for base in t.type.bases:
-        mapped = map_instance_to_supertype(t, base.type)
-        res = join_instances(mapped, s)
-        if best is None or is_better(res, best):
-            best = res
-    assert best is not None
-    promote = get_proper_type(t.type._promote)
-    if isinstance(promote, Instance):
-        res = join_instances(promote, s)
-        if is_better(res, best):
-            best = res
-    return best
 
 
 def is_better(t: Type, s: Type) -> bool:
@@ -412,58 +754,146 @@ def is_better(t: Type, s: Type) -> bool:
     if isinstance(t, Instance):
         if not isinstance(s, Instance):
             return True
+        if t.type.is_protocol != s.type.is_protocol:
+            if t.type.fullname != "builtins.object" and s.type.fullname != "builtins.object":
+                # mro of protocol is not really relevant
+                return not t.type.is_protocol
         # Use len(mro) as a proxy for the better choice.
         if len(t.type.mro) > len(s.type.mro):
             return True
     return False
 
 
-def is_similar_callables(t: CallableType, s: CallableType) -> bool:
-    """Return True if t and s have identical numbers of
-    arguments, default arguments and varargs.
+def normalize_callables(s: ProperType, t: ProperType) -> tuple[ProperType, ProperType]:
+    if isinstance(s, (CallableType, Overloaded)):
+        s = s.with_unpacked_kwargs()
+    if isinstance(t, (CallableType, Overloaded)):
+        t = t.with_unpacked_kwargs()
+    return s, t
+
+
+def is_similar_callables(
+    t: CallableType | Parameters, s: CallableType | Parameters, for_meet: bool = False
+) -> bool:
+    """Return True if t and s have identical numbers of arguments with similar shape.
+
+    If for_meet is True, the argument names must always match.
     """
-    return (len(t.arg_types) == len(s.arg_types) and t.min_args == s.min_args and
-            t.is_var_arg == s.is_var_arg)
+    if len(t.variables) != len(s.variables):
+        return False
+    if len(t.arg_types) != len(s.arg_types):
+        return False
+    for i, (t_kind, s_kind) in enumerate(zip(t.arg_kinds, s.arg_kinds)):
+        if t.arg_names[i] != s.arg_names[i]:
+            if for_meet or t_kind.is_named():
+                return False
+        if t_kind == s_kind:
+            continue
+        if t_kind.is_positional() and s_kind.is_positional():
+            continue
+        if t_kind.is_named() and s_kind.is_named():
+            continue
+        return False
+    return True
+
+
+def update_callable_ids(c: CallableType, ids: list[TypeVarId]) -> CallableType:
+    tv_map = {}
+    tvs = []
+    for tv, new_id in zip(c.variables, ids):
+        new_tv = tv.copy_modified(id=new_id)
+        tvs.append(new_tv)
+        tv_map[tv.id] = new_tv
+    return expand_type(c, tv_map).copy_modified(variables=tvs)
+
+
+def match_generic_callables(t: CallableType, s: CallableType) -> tuple[CallableType, CallableType]:
+    # The case where we combine/join/meet similar callables, situation where both are generic
+    # requires special care. A more principled solution may involve unify_generic_callable(),
+    # but it would have two problems:
+    #   * This adds risk of infinite recursion: e.g. join -> unification -> solver -> join
+    #   * Using unification is an incorrect thing for meets, as it "widens" the types
+    # Finally, this effectively falls back to an old behaviour before namespaces were added to
+    # type variables, and it worked relatively well.
+    max_len = max(len(t.variables), len(s.variables))
+    min_len = min(len(t.variables), len(s.variables))
+    if min_len == 0:
+        return t, s
+    new_ids = [TypeVarId.new(meta_level=0) for _ in range(max_len)]
+    # Note: this relies on variables being in order they appear in function definition.
+    return update_callable_ids(t, new_ids), update_callable_ids(s, new_ids)
 
 
 def join_similar_callables(t: CallableType, s: CallableType) -> CallableType:
+    t, s = match_generic_callables(t, s)
+    arg_types: list[Type] = []
+    for i in range(len(t.arg_types)):
+        if isinstance(get_proper_type(t.arg_types[i]), AnyType):
+            arg_types.append(t.arg_types[i])
+        elif isinstance(get_proper_type(s.arg_types[i]), AnyType):
+            arg_types.append(s.arg_types[i])
+        else:
+            arg_types.append(safe_meet(t.arg_types[i], s.arg_types[i]))
+    # TODO Handle more kinds and different argument names.
+    # TODO what should happen if one fallback is 'type' and the other is a custom metaclass?
+    # The fallback type can be either 'function', 'type', or some user-provided metaclass.
+    # The result should always use 'function' as a fallback if either operands are using it.
+    if t.fallback.type.fullname == "builtins.function":
+        fallback = t.fallback
+    elif s.fallback.type.fullname == "builtins.function":
+        fallback = s.fallback
+    else:
+        fallback = InstanceJoiner().join_instances(t.fallback, s.fallback)
+        assert isinstance(fallback, Instance)
+    instance_type = None
+    if t.instance_type is not None and s.instance_type is not None:
+        instance_type = join_types(t.instance_type, s.instance_type)
+    return t.copy_modified(
+        arg_types=arg_types,
+        arg_kinds=combine_arg_kinds(t, s),
+        arg_names=combine_arg_names(t, s),
+        ret_type=join_types(t.ret_type, s.ret_type),
+        instance_type=instance_type,
+        fallback=fallback,
+        name=None,
+    )
+
+
+def safe_join(t: Type, s: Type) -> Type:
+    # This is a temporary solution to prevent crashes in join_similar_callables() etc.,
+    # until relevant TODOs on handling arg_kinds will be addressed there.
+    if not isinstance(t, UnpackType) and not isinstance(s, UnpackType):
+        return join_types(t, s)
+    if isinstance(t, UnpackType) and isinstance(s, UnpackType):
+        return UnpackType(join_types(t.type, s.type))
+    return object_or_any_from_type(get_proper_type(t))
+
+
+def safe_meet(t: Type, s: Type) -> Type:
+    # Similar to above but for meet_types().
     from mypy.meet import meet_types
-    arg_types = []  # type: List[Type]
-    for i in range(len(t.arg_types)):
-        arg_types.append(meet_types(t.arg_types[i], s.arg_types[i]))
-    # TODO in combine_similar_callables also applies here (names and kinds)
-    # The fallback type can be either 'function' or 'type'. The result should have 'type' as
-    # fallback only if both operands have it as 'type'.
-    if t.fallback.type.fullname != 'builtins.type':
-        fallback = t.fallback
-    else:
-        fallback = s.fallback
-    return t.copy_modified(arg_types=arg_types,
-                           arg_names=combine_arg_names(t, s),
-                           ret_type=join_types(t.ret_type, s.ret_type),
-                           fallback=fallback,
-                           name=None)
+
+    if not isinstance(t, UnpackType) and not isinstance(s, UnpackType):
+        return meet_types(t, s)
+    if isinstance(t, UnpackType) and isinstance(s, UnpackType):
+        unpacked = get_proper_type(t.type)
+        if isinstance(unpacked, TypeVarTupleType):
+            fallback_type = unpacked.tuple_fallback.type
+        elif isinstance(unpacked, TupleType):
+            fallback_type = unpacked.partial_fallback.type
+        else:
+            assert isinstance(unpacked, Instance) and unpacked.type.fullname == "builtins.tuple"
+            fallback_type = unpacked.type
+        res = meet_types(t.type, s.type)
+        if isinstance(res, UninhabitedType):
+            res = Instance(fallback_type, [res])
+        return UnpackType(res)
+    return UninhabitedType()
 
 
-def combine_similar_callables(t: CallableType, s: CallableType) -> CallableType:
-    arg_types = []  # type: List[Type]
-    for i in range(len(t.arg_types)):
-        arg_types.append(join_types(t.arg_types[i], s.arg_types[i]))
-    # TODO kinds and argument names
-    # The fallback type can be either 'function' or 'type'. The result should have 'type' as
-    # fallback only if both operands have it as 'type'.
-    if t.fallback.type.fullname != 'builtins.type':
-        fallback = t.fallback
-    else:
-        fallback = s.fallback
-    return t.copy_modified(arg_types=arg_types,
-                           arg_names=combine_arg_names(t, s),
-                           ret_type=join_types(t.ret_type, s.ret_type),
-                           fallback=fallback,
-                           name=None)
-
-
-def combine_arg_names(t: CallableType, s: CallableType) -> List[Optional[str]]:
+def combine_arg_names(
+    t: CallableType | Parameters, s: CallableType | Parameters
+) -> list[str | None]:
     """Produces a list of argument names compatible with both callables.
 
     For example, suppose 't' and 's' have the following signatures:
@@ -478,19 +908,33 @@ def combine_arg_names(t: CallableType, s: CallableType) -> List[Optional[str]]:
     Note that the third argument's name is omitted and 't' and 's'
     are both valid subtypes of this inferred signature.
 
-    Precondition: is_similar_types(t, s) is true.
+    Precondition: is_similar_callables(t, s) is true.
     """
-    num_args = len(t.arg_types)
     new_names = []
-    named = (ARG_NAMED, ARG_NAMED_OPT)
-    for i in range(num_args):
-        t_name = t.arg_names[i]
-        s_name = s.arg_names[i]
-        if t_name == s_name or t.arg_kinds[i] in named or s.arg_kinds[i] in named:
+    for t_name, s_name in zip(t.arg_names, s.arg_names):
+        if t_name == s_name:
             new_names.append(t_name)
         else:
             new_names.append(None)
     return new_names
+
+
+def combine_arg_kinds(t: CallableType | Parameters, s: CallableType | Parameters) -> list[ArgKind]:
+    """Produces a list of argument kinds compatible with both callables.
+
+    Essentially we make all arguments non-optional (both positional and named).
+    Precondition: is_similar_callables(t, s) is true.
+    """
+    new_kinds = []
+    for t_kind, s_kind in zip(t.arg_kinds, s.arg_kinds):
+        if t_kind == s_kind:
+            new_kinds.append(t_kind)
+        elif t_kind.is_positional():
+            new_kinds.append(ARG_POS)
+        else:
+            assert t_kind.is_named()
+            new_kinds.append(ARG_NAMED)
+    return new_kinds
 
 
 def object_from_instance(instance: Instance) -> Instance:
@@ -511,7 +955,7 @@ def object_or_any_from_type(typ: ProperType) -> ProperType:
         return object_from_instance(typ.partial_fallback)
     elif isinstance(typ, TypeType):
         return object_or_any_from_type(typ.item)
-    elif isinstance(typ, TypeVarType) and isinstance(typ.upper_bound, ProperType):
+    elif isinstance(typ, TypeVarLikeType) and isinstance(typ.upper_bound, ProperType):
         return object_or_any_from_type(typ.upper_bound)
     elif isinstance(typ, UnionType):
         for item in typ.items:
@@ -519,22 +963,24 @@ def object_or_any_from_type(typ: ProperType) -> ProperType:
                 candidate = object_or_any_from_type(item)
                 if isinstance(candidate, Instance):
                     return candidate
+    elif isinstance(typ, UnpackType):
+        object_or_any_from_type(get_proper_type(typ.type))
     return AnyType(TypeOfAny.implementation_artifact)
 
 
-def join_type_list(types: List[Type]) -> ProperType:
+def join_type_list(types: Sequence[Type]) -> Type:
     if not types:
         # This is a little arbitrary but reasonable. Any empty tuple should be compatible
         # with all variable length tuples, and this makes it possible.
         return UninhabitedType()
-    joined = get_proper_type(types[0])
+    joined = types[0]
     for t in types[1:]:
         joined = join_types(joined, t)
     return joined
 
 
-def unpack_callback_protocol(t: Instance) -> Optional[Type]:
+def unpack_callback_protocol(t: Instance) -> ProperType | None:
     assert t.type.is_protocol
-    if t.type.protocol_members == ['__call__']:
-        return find_member('__call__', t, t, is_operator=True)
+    if t.type.protocol_members == ["__call__"]:
+        return get_proper_type(find_member("__call__", t, t, is_operator=True))
     return None

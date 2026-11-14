@@ -1,3 +1,3 @@
-from typing import Optional
+from typing import Final
 
-DEBUG: Optional[bool]
+DEBUG: Final[str | None]

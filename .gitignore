@@ -9,12 +9,15 @@ docs/source/_build
 mypyc/doc/_build
 *.iml
 /out/
-.venv*/
+.venv*
+venv/
 .mypy_cache/
 .incremental_checker_cache.json
 .cache
+test-data/packages/.pip_lock
 dmypy.json
 .dmypy.json
+/.mypyc_test_output
 
 # Packages
 *.egg
@@ -44,6 +47,8 @@ htmlcov
 bin/
 lib/
 include/
+.python-version
+pyvenv.cfg
 
 .tox
 pip-wheel-metadata
@@ -53,6 +58,5 @@ test_capi
 *.o
 *.a
 test_capi
-/.mypyc-flake8-cache.json
 /mypyc/lib-rt/build/
 /mypyc/lib-rt/*.so

@@ -1,116 +1,1022 @@
+# This condition is so big, it's clearer to keep to platform condition in two blocks
+# Can't NOQA on a specific line: https://github.com/plinss/flake8-noqa/issues/22
 import sys
-from typing import Type
+from collections.abc import Awaitable, Coroutine, Generator
+from typing import Any, TypeAlias, TypeVar
 
-from .base_events import BaseEventLoop as BaseEventLoop
-from .coroutines import coroutine as coroutine, iscoroutine as iscoroutine, iscoroutinefunction as iscoroutinefunction
-from .events import (
-    AbstractEventLoop as AbstractEventLoop,
-    AbstractEventLoopPolicy as AbstractEventLoopPolicy,
-    AbstractServer as AbstractServer,
-    Handle as Handle,
-    TimerHandle as TimerHandle,
-    _get_running_loop as _get_running_loop,
-    _set_running_loop as _set_running_loop,
-    get_child_watcher as get_child_watcher,
-    get_event_loop as get_event_loop,
-    get_event_loop_policy as get_event_loop_policy,
-    new_event_loop as new_event_loop,
-    set_child_watcher as set_child_watcher,
-    set_event_loop as set_event_loop,
-    set_event_loop_policy as set_event_loop_policy,
-)
-from .futures import Future as Future, isfuture as isfuture, wrap_future as wrap_future
-from .locks import (
-    BoundedSemaphore as BoundedSemaphore,
-    Condition as Condition,
-    Event as Event,
-    Lock as Lock,
-    Semaphore as Semaphore,
-)
-from .protocols import (
-    BaseProtocol as BaseProtocol,
-    DatagramProtocol as DatagramProtocol,
-    Protocol as Protocol,
-    SubprocessProtocol as SubprocessProtocol,
-)
-from .queues import (
-    LifoQueue as LifoQueue,
-    PriorityQueue as PriorityQueue,
-    Queue as Queue,
-    QueueEmpty as QueueEmpty,
-    QueueFull as QueueFull,
-)
-from .streams import (
-    StreamReader as StreamReader,
-    StreamReaderProtocol as StreamReaderProtocol,
-    StreamWriter as StreamWriter,
-    open_connection as open_connection,
-    start_server as start_server,
-)
-from .subprocess import create_subprocess_exec as create_subprocess_exec, create_subprocess_shell as create_subprocess_shell
-from .tasks import (
-    ALL_COMPLETED as ALL_COMPLETED,
-    FIRST_COMPLETED as FIRST_COMPLETED,
-    FIRST_EXCEPTION as FIRST_EXCEPTION,
-    Task as Task,
-    as_completed as as_completed,
-    ensure_future as ensure_future,
-    gather as gather,
-    run_coroutine_threadsafe as run_coroutine_threadsafe,
-    shield as shield,
-    sleep as sleep,
-    wait as wait,
-    wait_for as wait_for,
-)
-from .transports import (
-    BaseTransport as BaseTransport,
-    DatagramTransport as DatagramTransport,
-    ReadTransport as ReadTransport,
-    SubprocessTransport as SubprocessTransport,
-    Transport as Transport,
-    WriteTransport as WriteTransport,
-)
+# As at runtime, this depends on all submodules defining __all__ accurately.
+from .base_events import *
+from .coroutines import *
+from .events import *
+from .exceptions import *
+from .futures import *
+from .locks import *
+from .protocols import *
+from .queues import *
+from .runners import *
+from .streams import *
+from .subprocess import *
+from .tasks import *
+from .threads import *
+from .transports import *
 
-if sys.version_info >= (3, 7):
-    from .events import get_running_loop as get_running_loop
-if sys.version_info >= (3, 8):
-    from .exceptions import (
-        CancelledError as CancelledError,
-        IncompleteReadError as IncompleteReadError,
-        InvalidStateError as InvalidStateError,
-        LimitOverrunError as LimitOverrunError,
-        SendfileNotAvailableError as SendfileNotAvailableError,
-        TimeoutError as TimeoutError,
-    )
-else:
-    if sys.version_info >= (3, 7):
-        from .events import SendfileNotAvailableError as SendfileNotAvailableError
-    from .futures import CancelledError as CancelledError, InvalidStateError as InvalidStateError, TimeoutError as TimeoutError
-    from .streams import IncompleteReadError as IncompleteReadError, LimitOverrunError as LimitOverrunError
+if sys.version_info >= (3, 14):
+    from .graph import *
 
-if sys.version_info >= (3, 7):
-    from .protocols import BufferedProtocol as BufferedProtocol
+if sys.version_info >= (3, 11):
+    from .taskgroups import *
+    from .timeouts import *
 
-if sys.version_info >= (3, 7):
-    from .runners import run as run
-
-if sys.version_info >= (3, 7):
-    from .tasks import all_tasks as all_tasks, create_task as create_task, current_task as current_task
-if sys.version_info >= (3, 9):
-    from .threads import to_thread as to_thread
-
-DefaultEventLoopPolicy: Type[AbstractEventLoopPolicy]
 if sys.platform == "win32":
     from .windows_events import *
+else:
+    from .unix_events import *
 
-if sys.platform != "win32":
-    from .streams import open_unix_connection as open_unix_connection, start_unix_server as start_unix_server
-    from .unix_events import (
-        AbstractChildWatcher as AbstractChildWatcher,
-        FastChildWatcher as FastChildWatcher,
-        SafeChildWatcher as SafeChildWatcher,
-        SelectorEventLoop as SelectorEventLoop,
-    )
+if sys.version_info >= (3, 14):
+    from .events import _AbstractEventLoopPolicy
 
-    if sys.version_info >= (3, 8):
-        from .unix_events import MultiLoopChildWatcher as MultiLoopChildWatcher, ThreadedChildWatcher as ThreadedChildWatcher
+    AbstractEventLoopPolicy = _AbstractEventLoopPolicy
+
+if sys.platform == "win32":
+    if sys.version_info >= (3, 14):
+        from .windows_events import _DefaultEventLoopPolicy, _WindowsProactorEventLoopPolicy, _WindowsSelectorEventLoopPolicy
+
+        DefaultEventLoopPolicy = _DefaultEventLoopPolicy
+        WindowsProactorEventLoopPolicy = _WindowsProactorEventLoopPolicy
+        WindowsSelectorEventLoopPolicy = _WindowsSelectorEventLoopPolicy
+else:
+    if sys.version_info >= (3, 14):
+        from .unix_events import _DefaultEventLoopPolicy
+
+        DefaultEventLoopPolicy = _DefaultEventLoopPolicy
+
+if sys.platform == "win32":
+    if sys.version_info >= (3, 14):
+
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "future_discard_from_awaited_by",  # from futures
+            "future_add_to_awaited_by",  # from futures
+            "capture_call_graph",  # from graph
+            "format_call_graph",  # from graph
+            "print_call_graph",  # from graph
+            "FrameCallGraphEntry",  # from graph
+            "FutureCallGraph",  # from graph
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "QueueShutDown",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "create_eager_task_factory",  # from tasks
+            "eager_task_factory",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "TaskGroup",  # from taskgroups
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from windows_events
+            "ProactorEventLoop",  # from windows_events
+            "IocpProactor",  # from windows_events
+            "_DefaultEventLoopPolicy",  # from windows_events
+            "_WindowsSelectorEventLoopPolicy",  # from windows_events
+            "_WindowsProactorEventLoopPolicy",  # from windows_events
+            "EventLoop",  # from windows_events
+        )
+    elif sys.version_info >= (3, 13):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "QueueShutDown",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "create_eager_task_factory",  # from tasks
+            "eager_task_factory",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "TaskGroup",  # from taskgroups
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from windows_events
+            "ProactorEventLoop",  # from windows_events
+            "IocpProactor",  # from windows_events
+            "DefaultEventLoopPolicy",  # from windows_events
+            "WindowsSelectorEventLoopPolicy",  # from windows_events
+            "WindowsProactorEventLoopPolicy",  # from windows_events
+            "EventLoop",  # from windows_events
+        )
+    elif sys.version_info >= (3, 12):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "create_eager_task_factory",  # from tasks
+            "eager_task_factory",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "TaskGroup",  # from taskgroups
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from windows_events
+            "ProactorEventLoop",  # from windows_events
+            "IocpProactor",  # from windows_events
+            "DefaultEventLoopPolicy",  # from windows_events
+            "WindowsSelectorEventLoopPolicy",  # from windows_events
+            "WindowsProactorEventLoopPolicy",  # from windows_events
+        )
+    elif sys.version_info >= (3, 11):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from windows_events
+            "ProactorEventLoop",  # from windows_events
+            "IocpProactor",  # from windows_events
+            "DefaultEventLoopPolicy",  # from windows_events
+            "WindowsSelectorEventLoopPolicy",  # from windows_events
+            "WindowsProactorEventLoopPolicy",  # from windows_events
+        )
+    else:
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "coroutine",  # from coroutines
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "to_thread",  # from threads
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from windows_events
+            "ProactorEventLoop",  # from windows_events
+            "IocpProactor",  # from windows_events
+            "DefaultEventLoopPolicy",  # from windows_events
+            "WindowsSelectorEventLoopPolicy",  # from windows_events
+            "WindowsProactorEventLoopPolicy",  # from windows_events
+        )
+else:
+    if sys.version_info >= (3, 14):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "future_discard_from_awaited_by",  # from futures
+            "future_add_to_awaited_by",  # from futures
+            "capture_call_graph",  # from graph
+            "format_call_graph",  # from graph
+            "print_call_graph",  # from graph
+            "FrameCallGraphEntry",  # from graph
+            "FutureCallGraph",  # from graph
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "QueueShutDown",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "open_unix_connection",  # from streams
+            "start_unix_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "create_eager_task_factory",  # from tasks
+            "eager_task_factory",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "TaskGroup",  # from taskgroups
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from unix_events
+            "EventLoop",  # from unix_events
+        )
+    elif sys.version_info >= (3, 13):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "QueueShutDown",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "open_unix_connection",  # from streams
+            "start_unix_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "create_eager_task_factory",  # from tasks
+            "eager_task_factory",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "TaskGroup",  # from taskgroups
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from unix_events
+            "AbstractChildWatcher",  # from unix_events
+            "SafeChildWatcher",  # from unix_events
+            "FastChildWatcher",  # from unix_events
+            "PidfdChildWatcher",  # from unix_events
+            "MultiLoopChildWatcher",  # from unix_events
+            "ThreadedChildWatcher",  # from unix_events
+            "DefaultEventLoopPolicy",  # from unix_events
+            "EventLoop",  # from unix_events
+        )
+    elif sys.version_info >= (3, 12):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "open_unix_connection",  # from streams
+            "start_unix_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "create_eager_task_factory",  # from tasks
+            "eager_task_factory",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "TaskGroup",  # from taskgroups
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from unix_events
+            "AbstractChildWatcher",  # from unix_events
+            "SafeChildWatcher",  # from unix_events
+            "FastChildWatcher",  # from unix_events
+            "PidfdChildWatcher",  # from unix_events
+            "MultiLoopChildWatcher",  # from unix_events
+            "ThreadedChildWatcher",  # from unix_events
+            "DefaultEventLoopPolicy",  # from unix_events
+        )
+    elif sys.version_info >= (3, 11):
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "BrokenBarrierError",  # from exceptions
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "Barrier",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "Runner",  # from runners
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "open_unix_connection",  # from streams
+            "start_unix_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "to_thread",  # from threads
+            "Timeout",  # from timeouts
+            "timeout",  # from timeouts
+            "timeout_at",  # from timeouts
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from unix_events
+            "AbstractChildWatcher",  # from unix_events
+            "SafeChildWatcher",  # from unix_events
+            "FastChildWatcher",  # from unix_events
+            "PidfdChildWatcher",  # from unix_events
+            "MultiLoopChildWatcher",  # from unix_events
+            "ThreadedChildWatcher",  # from unix_events
+            "DefaultEventLoopPolicy",  # from unix_events
+        )
+    else:
+        __all__ = (
+            "BaseEventLoop",  # from base_events
+            "Server",  # from base_events
+            "coroutine",  # from coroutines
+            "iscoroutinefunction",  # from coroutines
+            "iscoroutine",  # from coroutines
+            "AbstractEventLoopPolicy",  # from events
+            "AbstractEventLoop",  # from events
+            "AbstractServer",  # from events
+            "Handle",  # from events
+            "TimerHandle",  # from events
+            "get_event_loop_policy",  # from events
+            "set_event_loop_policy",  # from events
+            "get_event_loop",  # from events
+            "set_event_loop",  # from events
+            "new_event_loop",  # from events
+            "get_child_watcher",  # from events
+            "set_child_watcher",  # from events
+            "_set_running_loop",  # from events
+            "get_running_loop",  # from events
+            "_get_running_loop",  # from events
+            "CancelledError",  # from exceptions
+            "InvalidStateError",  # from exceptions
+            "TimeoutError",  # from exceptions
+            "IncompleteReadError",  # from exceptions
+            "LimitOverrunError",  # from exceptions
+            "SendfileNotAvailableError",  # from exceptions
+            "Future",  # from futures
+            "wrap_future",  # from futures
+            "isfuture",  # from futures
+            "Lock",  # from locks
+            "Event",  # from locks
+            "Condition",  # from locks
+            "Semaphore",  # from locks
+            "BoundedSemaphore",  # from locks
+            "BaseProtocol",  # from protocols
+            "Protocol",  # from protocols
+            "DatagramProtocol",  # from protocols
+            "SubprocessProtocol",  # from protocols
+            "BufferedProtocol",  # from protocols
+            "run",  # from runners
+            "Queue",  # from queues
+            "PriorityQueue",  # from queues
+            "LifoQueue",  # from queues
+            "QueueFull",  # from queues
+            "QueueEmpty",  # from queues
+            "StreamReader",  # from streams
+            "StreamWriter",  # from streams
+            "StreamReaderProtocol",  # from streams
+            "open_connection",  # from streams
+            "start_server",  # from streams
+            "open_unix_connection",  # from streams
+            "start_unix_server",  # from streams
+            "create_subprocess_exec",  # from subprocess
+            "create_subprocess_shell",  # from subprocess
+            "Task",  # from tasks
+            "create_task",  # from tasks
+            "FIRST_COMPLETED",  # from tasks
+            "FIRST_EXCEPTION",  # from tasks
+            "ALL_COMPLETED",  # from tasks
+            "wait",  # from tasks
+            "wait_for",  # from tasks
+            "as_completed",  # from tasks
+            "sleep",  # from tasks
+            "gather",  # from tasks
+            "shield",  # from tasks
+            "ensure_future",  # from tasks
+            "run_coroutine_threadsafe",  # from tasks
+            "current_task",  # from tasks
+            "all_tasks",  # from tasks
+            "_register_task",  # from tasks
+            "_unregister_task",  # from tasks
+            "_enter_task",  # from tasks
+            "_leave_task",  # from tasks
+            "to_thread",  # from threads
+            "BaseTransport",  # from transports
+            "ReadTransport",  # from transports
+            "WriteTransport",  # from transports
+            "Transport",  # from transports
+            "DatagramTransport",  # from transports
+            "SubprocessTransport",  # from transports
+            "SelectorEventLoop",  # from unix_events
+            "AbstractChildWatcher",  # from unix_events
+            "SafeChildWatcher",  # from unix_events
+            "FastChildWatcher",  # from unix_events
+            "PidfdChildWatcher",  # from unix_events
+            "MultiLoopChildWatcher",  # from unix_events
+            "ThreadedChildWatcher",  # from unix_events
+            "DefaultEventLoopPolicy",  # from unix_events
+        )
+
+_T_co = TypeVar("_T_co", covariant=True)
+
+# Aliases imported by multiple submodules in typeshed
+if sys.version_info >= (3, 12):
+    _AwaitableLike: TypeAlias = Awaitable[_T_co]  # noqa: Y047
+    _CoroutineLike: TypeAlias = Coroutine[Any, Any, _T_co]  # noqa: Y047
+else:
+    _AwaitableLike: TypeAlias = Generator[Any, None, _T_co] | Awaitable[_T_co]
+    _CoroutineLike: TypeAlias = Generator[Any, None, _T_co] | Coroutine[Any, Any, _T_co]

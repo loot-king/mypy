@@ -1,6 +1,7 @@
 from typing import (
     Iterable, Iterator, TypeVar, List, Mapping, overload, Tuple, Set, Union, Generic, Sequence
 )
+import types
 
 class object:
     def __init__(self) -> None: pass
@@ -10,11 +11,13 @@ class type:
     def __init__(self, x) -> None: pass
 
 class function: pass
-class ellipsis: pass
 class classmethod: pass
+
+Ellipsis: types.EllipsisType
 
 def isinstance(x: object, t: Union[type, Tuple]) -> bool: pass
 def issubclass(x: object, t: Union[type, Tuple]) -> bool: pass
+def hasattr(x: object, name: str) -> bool: pass
 
 class int:
     def __add__(self, x: int) -> int: pass
@@ -23,6 +26,7 @@ class bool(int): pass
 class str:
     def __add__(self, x: str) -> str: pass
     def __getitem__(self, x: int) -> str: pass
+class bytes: pass
 
 T = TypeVar('T')
 KT = TypeVar('KT')
@@ -38,6 +42,8 @@ class list(Sequence[T]):
     def __getitem__(self, x: int) -> T: pass
     def __add__(self, x: List[T]) -> T: pass
     def __contains__(self, item: object) -> bool: pass
+    def append(self, x: T) -> None: pass
+    def extend(self, x: Iterable[T]) -> None: pass
 
 class dict(Mapping[KT, VT]):
     @overload
@@ -47,6 +53,7 @@ class dict(Mapping[KT, VT]):
     def __setitem__(self, k: KT, v: VT) -> None: pass
     def __iter__(self) -> Iterator[KT]: pass
     def update(self, a: Mapping[KT, VT]) -> None: pass
+    def items(self) -> Iterable[Tuple[KT, VT]]: pass
 
 class set(Generic[T]):
     def __iter__(self) -> Iterator[T]: pass

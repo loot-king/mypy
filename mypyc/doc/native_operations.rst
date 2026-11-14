@@ -24,6 +24,7 @@ Functions
 * ``cast(<type>, obj)``
 * ``type(obj)``
 * ``len(obj)``
+* ``abs(obj)``
 * ``id(obj)``
 * ``iter(obj)``
 * ``next(iter: Iterator)``
@@ -35,6 +36,7 @@ Functions
 * ``delattr(obj, name)``
 * ``slice(start, stop, step)``
 * ``globals()``
+* ``sorted(obj)``
 
 Method decorators
 -----------------

@@ -11,6 +11,14 @@ reveal_type(f())  # N: Revealed type is "builtins.int"
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/fnplugin.py
 
+[case testFunctionPluginFilePyProjectTOML]
+# flags: --config-file tmp/pyproject.toml
+def f() -> str: ...
+reveal_type(f())  # N: Revealed type is "builtins.int"
+[file pyproject.toml]
+\[tool.mypy]
+plugins='<ROOT>/test-data/unit/plugins/fnplugin.py'
+
 [case testFunctionPlugin]
 # flags: --config-file tmp/mypy.ini
 def f() -> str: ...
@@ -18,6 +26,14 @@ reveal_type(f())  # N: Revealed type is "builtins.int"
 [file mypy.ini]
 \[mypy]
 plugins=fnplugin
+
+[case testFunctionPluginPyProjectTOML]
+# flags: --config-file tmp/pyproject.toml
+def f() -> str: ...
+reveal_type(f())  # N: Revealed type is "builtins.int"
+[file pyproject.toml]
+\[tool.mypy]
+plugins = 'fnplugin'
 
 [case testFunctionPluginFullnameIsNotNone]
 # flags: --config-file tmp/mypy.ini
@@ -29,6 +45,17 @@ g(f)()
 [file mypy.ini]
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/fnplugin.py
+
+[case testFunctionPluginFullnameIsNotNonePyProjectTOML]
+# flags: --config-file tmp/pyproject.toml
+from typing import Callable, TypeVar
+f: Callable[[], None]
+T = TypeVar('T')
+def g(x: T) -> T: return x  # This strips out the name of a callable
+g(f)()
+[file pyproject.toml]
+\[tool.mypy]
+plugins="<ROOT>/test-data/unit/plugins/fnplugin.py"
 
 [case testTwoPlugins]
 # flags: --config-file tmp/mypy.ini
@@ -43,6 +70,20 @@ reveal_type(h())  # N: Revealed type is "Any"
 plugins=<ROOT>/test-data/unit/plugins/fnplugin.py,
   <ROOT>/test-data/unit/plugins/plugin2.py
 
+[case testTwoPluginsPyProjectTOML]
+# flags: --config-file tmp/pyproject.toml
+def f(): ...
+def g(): ...
+def h(): ...
+reveal_type(f())  # N: Revealed type is "builtins.int"
+reveal_type(g())  # N: Revealed type is "builtins.str"
+reveal_type(h())  # N: Revealed type is "Any"
+[file pyproject.toml]
+\[tool.mypy]
+plugins=['<ROOT>/test-data/unit/plugins/fnplugin.py',
+  '<ROOT>/test-data/unit/plugins/plugin2.py'
+]
+
 [case testTwoPluginsMixedType]
 # flags: --config-file tmp/mypy.ini
 def f(): ...
@@ -55,13 +96,25 @@ reveal_type(h())  # N: Revealed type is "Any"
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/fnplugin.py, plugin2
 
+[case testTwoPluginsMixedTypePyProjectTOML]
+# flags: --config-file tmp/pyproject.toml
+def f(): ...
+def g(): ...
+def h(): ...
+reveal_type(f())  # N: Revealed type is "builtins.int"
+reveal_type(g())  # N: Revealed type is "builtins.str"
+reveal_type(h())  # N: Revealed type is "Any"
+[file pyproject.toml]
+\[tool.mypy]
+plugins=['<ROOT>/test-data/unit/plugins/fnplugin.py', 'plugin2']
+
 [case testMissingPluginFile]
 # flags: --config-file tmp/mypy.ini
 [file mypy.ini]
 \[mypy]
 plugins=missing.py
 [out]
-tmp/mypy.ini:2: error: Can't find plugin 'tmp/missing.py'
+tmp/mypy.ini:2: error: Can't find plugin "tmp/missing.py"
 --' (work around syntax highlighting)
 
 [case testMissingPlugin]
@@ -70,7 +123,7 @@ tmp/mypy.ini:2: error: Can't find plugin 'tmp/missing.py'
 \[mypy]
 plugins=missing
 [out]
-tmp/mypy.ini:2: error: Error importing plugin 'missing': No module named 'missing'
+tmp/mypy.ini:2: error: Error importing plugin "missing": No module named 'missing'
 
 [case testMultipleSectionsDefinePlugin]
 # flags: --config-file tmp/mypy.ini
@@ -82,7 +135,7 @@ plugins=missing.py
 \[another]
 plugins=another_plugin
 [out]
-tmp/mypy.ini:4: error: Can't find plugin 'tmp/missing.py'
+tmp/mypy.ini:4: error: Can't find plugin "tmp/missing.py"
 --' (work around syntax highlighting)
 
 [case testInvalidPluginExtension]
@@ -92,7 +145,7 @@ tmp/mypy.ini:4: error: Can't find plugin 'tmp/missing.py'
 plugins=dir/badext.pyi
 [file dir/badext.pyi]
 [out]
-tmp/mypy.ini:2: error: Plugin 'badext.pyi' does not have a .py extension
+tmp/mypy.ini:2: error: Plugin "badext.pyi" does not have a .py extension
 
 [case testMissingPluginEntryPoint]
 # flags: --config-file tmp/mypy.ini
@@ -100,7 +153,7 @@ tmp/mypy.ini:2: error: Plugin 'badext.pyi' does not have a .py extension
 \[mypy]
  plugins = <ROOT>/test-data/unit/plugins/noentry.py
 [out]
-tmp/mypy.ini:2: error: Plugin '<ROOT>/test-data/unit/plugins/noentry.py' does not define entry point function "plugin"
+tmp/mypy.ini:2: error: Plugin "<ROOT>/test-data/unit/plugins/noentry.py" does not define entry point function "plugin"
 
 [case testCustomPluginEntryPointFile]
 # flags: --config-file tmp/mypy.ini
@@ -109,6 +162,15 @@ reveal_type(f())  # N: Revealed type is "builtins.int"
 [file mypy.ini]
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/customentry.py:register
+
+[case testCustomPluginEntryPointFileTrailingComma]
+# flags: --config-file tmp/mypy.ini
+def f() -> str: ...
+reveal_type(f())  # N: Revealed type is "builtins.int"
+[file mypy.ini]
+\[mypy]
+plugins =
+    <ROOT>/test-data/unit/plugins/customentry.py:register,
 
 [case testCustomPluginEntryPoint]
 # flags: --config-file tmp/mypy.ini
@@ -160,6 +222,77 @@ class DerivedSignal(Signal[T]): ...
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/attrhook.py
 
+[case testAttributeTypeHookPluginUntypedDecoratedGetattr]
+# flags: --config-file tmp/mypy.ini
+from m import Magic, DerivedMagic
+
+magic = Magic()
+reveal_type(magic.magic_field)  # N: Revealed type is "builtins.str"
+reveal_type(magic.non_magic_method())  # N: Revealed type is "builtins.int"
+reveal_type(magic.non_magic_field)  # N: Revealed type is "builtins.int"
+magic.nonexistent_field  # E: Field does not exist
+reveal_type(magic.fallback_example)  # N: Revealed type is "Any"
+reveal_type(magic.no_assignment_field)  # N: Revealed type is "builtins.float"
+magic.no_assignment_field = "bad"  # E: Cannot assign to field
+
+derived = DerivedMagic()
+reveal_type(derived.magic_field)  # N: Revealed type is "builtins.str"
+derived.nonexistent_field  # E: Field does not exist
+reveal_type(derived.fallback_example)  # N: Revealed type is "Any"
+
+[file m.py]
+from typing import Any, Callable
+
+def decorator(f):
+    pass
+
+class Magic:
+    # Triggers plugin infrastructure:
+    @decorator
+    def __getattr__(self, x: Any) -> Any: ...
+    def non_magic_method(self) -> int: ...
+    non_magic_field: int
+    no_assignment_field: float
+
+class DerivedMagic(Magic): ...
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/attrhook2.py
+
+[case testAttributeTypeHookPluginDecoratedGetattr]
+# flags: --config-file tmp/mypy.ini
+from m import Magic, DerivedMagic
+
+magic = Magic()
+reveal_type(magic.magic_field)  # N: Revealed type is "builtins.str"
+reveal_type(magic.non_magic_method())  # N: Revealed type is "builtins.int"
+reveal_type(magic.non_magic_field)  # N: Revealed type is "builtins.int"
+magic.nonexistent_field  # E: Field does not exist
+reveal_type(magic.fallback_example)  # N: Revealed type is "builtins.bool"
+
+derived = DerivedMagic()
+reveal_type(derived.magic_field)  # N: Revealed type is "builtins.str"
+derived.nonexistent_field  # E: Field does not exist
+reveal_type(derived.fallback_example)  # N: Revealed type is "builtins.bool"
+
+[file m.py]
+from typing import Any, Callable
+
+def decorator(f: Callable) -> Callable[[Any, str], bool]:
+    pass
+
+class Magic:
+    # Triggers plugin infrastructure:
+    @decorator
+    def __getattr__(self, x: Any) -> Any: ...
+    def non_magic_method(self) -> int: ...
+    non_magic_field: int
+
+class DerivedMagic(Magic): ...
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/attrhook2.py
+
 [case testAttributeHookPluginForDynamicClass]
 # flags: --config-file tmp/mypy.ini
 from m import Magic, DerivedMagic
@@ -170,7 +303,12 @@ reveal_type(magic.non_magic_method())  # N: Revealed type is "builtins.int"
 reveal_type(magic.non_magic_field)  # N: Revealed type is "builtins.int"
 magic.nonexistent_field  # E: Field does not exist
 reveal_type(magic.fallback_example)  # N: Revealed type is "Any"
-reveal_type(DerivedMagic().magic_field)  # N: Revealed type is "builtins.str"
+
+derived = DerivedMagic()
+reveal_type(derived.magic_field)  # N: Revealed type is "builtins.str"
+derived.nonexistent_field  # E: Field does not exist
+reveal_type(magic.fallback_example)  # N: Revealed type is "Any"
+
 [file m.py]
 from typing import Any
 class Magic:
@@ -218,9 +356,9 @@ class C:
     z = AnotherAlias(int, required=False)
 
 c = C()
-reveal_type(c.x)  # N: Revealed type is "Union[builtins.int, None]"
-reveal_type(c.y)  # N: Revealed type is "builtins.int*"
-reveal_type(c.z)  # N: Revealed type is "Union[builtins.int*, None]"
+reveal_type(c.x)  # N: Revealed type is "builtins.int | None"
+reveal_type(c.y)  # N: Revealed type is "builtins.int"
+reveal_type(c.z)  # N: Revealed type is "builtins.int | None"
 
 [file mod.py]
 from typing import Generic, TypeVar, Type
@@ -432,7 +570,7 @@ reveal_type(foo[3]) # N: Revealed type is "builtins.int"
 reveal_type(foo(4, 5, 6)) # N: Revealed type is "builtins.int"
 foo[4] = 5
 for x in foo:
-    reveal_type(x) # N: Revealed type is "builtins.int*"
+    reveal_type(x) # N: Revealed type is "builtins.int"
 
 [file mypy.ini]
 \[mypy]
@@ -441,8 +579,7 @@ plugins=<ROOT>/test-data/unit/plugins/method_sig_hook.py
 
 [case testMethodSignatureHookNamesFullyQualified]
 # flags: --config-file tmp/mypy.ini
-from mypy_extensions import TypedDict
-from typing import NamedTuple
+from typing import NamedTuple, TypedDict
 
 class FullyQualifiedTestClass:
     @classmethod
@@ -463,6 +600,7 @@ reveal_type(FullyQualifiedTestNamedTuple('')._asdict()) # N: Revealed type is "b
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/fully_qualified_test_hook.py
 [builtins fixtures/classmethod.pyi]
+[typing fixtures/typing-typeddict.pyi]
 
 [case testDynamicClassPlugin]
 # flags: --config-file tmp/mypy.ini
@@ -490,26 +628,23 @@ class Instr(Generic[T]): ...
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/dyn_class.py
 
-[case testDynamicClassPluginNegatives]
+[case testDynamicClassPluginChainCall]
 # flags: --config-file tmp/mypy.ini
-from mod import declarative_base, Column, Instr, non_declarative_base
+from mod import declarative_base, Column, Instr
 
-Bad1 = non_declarative_base()
-Bad2 = Bad3 = declarative_base()
+Base = declarative_base().with_optional_xxx()
 
-class C1(Bad1): ...  # E: Variable "__main__.Bad1" is not valid as a type \
-                     # N: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases \
-                     # E: Invalid base class "Bad1"
-class C2(Bad2): ...  # E: Variable "__main__.Bad2" is not valid as a type \
-                     # N: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases \
-                     # E: Invalid base class "Bad2"
-class C3(Bad3): ...  # E: Variable "__main__.Bad3" is not valid as a type \
-                     # N: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases \
-                     # E: Invalid base class "Bad3"
+class Model(Base):
+    x: Column[int]
+
+reveal_type(Model().x)  # N: Revealed type is "mod.Instr[builtins.int]"
 [file mod.py]
 from typing import Generic, TypeVar
-def declarative_base(): ...
-def non_declarative_base(): ...
+
+class Base:
+    def with_optional_xxx(self) -> Base: ...
+
+def declarative_base() -> Base: ...
 
 T = TypeVar('T')
 
@@ -520,15 +655,48 @@ class Instr(Generic[T]): ...
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/dyn_class.py
 
+[case testDynamicClassPluginChainedAssignment]
+# flags: --config-file tmp/mypy.ini
+from mod import declarative_base
+
+Base1 = Base2 = declarative_base()
+
+class C1(Base1): ...
+class C2(Base2): ...
+[file mod.py]
+def declarative_base(): ...
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/dyn_class.py
+
+[case testDynamicClassPluginNegatives]
+# flags: --config-file tmp/mypy.ini
+from mod import non_declarative_base
+
+Bad1 = non_declarative_base()
+
+class C1(Bad1): ...  # E: Variable "__main__.Bad1" is not valid as a type \
+                     # N: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases \
+                     # E: Invalid base class "Bad1"
+[file mod.py]
+def non_declarative_base(): ...
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/dyn_class.py
+
 [case testDynamicClassHookFromClassMethod]
 # flags: --config-file tmp/mypy.ini
 
-from mod import QuerySet, Manager
+from mod import QuerySet, Manager, GenericQuerySet
 
 MyManager = Manager.from_queryset(QuerySet)
+ManagerFromGenericQuerySet = GenericQuerySet[int].as_manager()
 
 reveal_type(MyManager())  # N: Revealed type is "__main__.MyManager"
 reveal_type(MyManager().attr)  # N: Revealed type is "builtins.str"
+reveal_type(ManagerFromGenericQuerySet())  # N: Revealed type is "__main__.ManagerFromGenericQuerySet"
+reveal_type(ManagerFromGenericQuerySet().attr)  # N: Revealed type is "builtins.int"
+queryset: GenericQuerySet[int] = ManagerFromGenericQuerySet()
 
 def func(manager: MyManager) -> None:
     reveal_type(manager)   # N: Revealed type is "__main__.MyManager"
@@ -543,6 +711,12 @@ class QuerySet:
 class Manager:
     @classmethod
     def from_queryset(cls, queryset_cls: Type[QuerySet]): ...
+T = TypeVar("T")
+class GenericQuerySet(Generic[T]):
+    attr: T
+
+    @classmethod
+    def as_manager(cls): ...
 
 [builtins fixtures/classmethod.pyi]
 [file mypy.ini]
@@ -578,7 +752,7 @@ plugins=<ROOT>/test-data/unit/plugins/common_api_incremental.py
 [out]
 [out2]
 tmp/a.py:3: note: Revealed type is "builtins.str"
-tmp/a.py:4: error: "Type[Base]" has no attribute "__magic__"
+tmp/a.py:4: error: "type[Base]" has no attribute "__magic__"
 
 [case testArgKindsMethod]
 # flags: --config-file tmp/mypy.ini
@@ -610,9 +784,9 @@ T = TypeVar("T")
 class Class(Generic[T]):
     def __init__(self, one: T): ...
     def __call__(self, two: T) -> int: ...
-reveal_type(Class("hi")("there"))  # N: Revealed type is "builtins.str*"
+reveal_type(Class("hi")("there"))  # N: Revealed type is "builtins.str"
 instance = Class(3.14)
-reveal_type(instance(2))  # N: Revealed type is "builtins.float*"
+reveal_type(instance(2))  # N: Revealed type is "builtins.float"
 
 [file mypy.ini]
 \[mypy]
@@ -641,7 +815,7 @@ else:
 plugins=<ROOT>/test-data/unit/plugins/union_method.py
 
 [case testGetMethodHooksOnUnionsStrictOptional]
-# flags: --config-file tmp/mypy.ini --strict-optional
+# flags: --config-file tmp/mypy.ini
 from typing import Union
 
 class Foo:
@@ -726,7 +900,229 @@ plugins=<ROOT>/test-data/unit/plugins/descriptor.py
 # flags: --config-file tmp/mypy.ini
 
 def dynamic_signature(arg1: str) -> str: ...
-reveal_type(dynamic_signature(1))  # N: Revealed type is "builtins.int"
+a: int = 1
+reveal_type(dynamic_signature(a))  # N: Revealed type is "builtins.int"
+b: bytes = b'foo'
+reveal_type(dynamic_signature(b))  # N: Revealed type is "builtins.bytes"
 [file mypy.ini]
 \[mypy]
 plugins=<ROOT>/test-data/unit/plugins/function_sig_hook.py
+
+[case testPluginCalledCorrectlyWhenMethodInDecorator]
+# flags: --config-file tmp/mypy.ini
+from typing import TypeVar, Callable
+
+T = TypeVar('T')
+class Foo:
+    def a(self, x: Callable[[], T]) -> Callable[[], T]: ...
+
+b = Foo()
+
+@b.a
+def f() -> None:
+    pass
+
+reveal_type(f())  # N: Revealed type is "builtins.str"
+
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/method_in_decorator.py
+
+[case testClassAttrPluginClassVar]
+# flags: --config-file tmp/mypy.ini
+
+from typing import Type
+
+class Cls:
+    attr = 'test'
+    unchanged = 'test'
+
+reveal_type(Cls().attr)  # N: Revealed type is "builtins.str"
+reveal_type(Cls.attr)  # N: Revealed type is "builtins.int"
+reveal_type(Cls.unchanged)  # N: Revealed type is "builtins.str"
+x: Type[Cls]
+reveal_type(x.attr)  # N: Revealed type is "builtins.int"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/class_attr_hook.py
+
+[case testClassAttrPluginMethod]
+# flags: --config-file tmp/mypy.ini
+
+class Cls:
+    def attr(self) -> None:
+        pass
+
+reveal_type(Cls.attr)  # N: Revealed type is "builtins.int"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/class_attr_hook.py
+
+[case testClassAttrPluginEnum]
+# flags: --config-file tmp/mypy.ini
+
+import enum
+
+class Cls(enum.Enum):
+    attr = 'test'
+
+reveal_type(Cls.attr)  # N: Revealed type is "builtins.int"
+[builtins fixtures/enum.pyi]
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/class_attr_hook.py
+
+[case testClassAttrPluginMetaclassAnyBase]
+# flags: --config-file tmp/mypy.ini
+
+from typing import Any, Type
+class M(type):
+    attr = 'test'
+
+B: Any
+class Cls(B, metaclass=M):
+    pass
+
+reveal_type(Cls.attr) # N: Revealed type is "builtins.int"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/class_attr_hook.py
+
+[case testClassAttrPluginMetaclassRegularBase]
+# flags: --config-file tmp/mypy.ini
+
+from typing import Any, Type
+class M(type):
+    attr = 'test'
+
+class B:
+    attr = b'bytes'
+
+class Cls(B, metaclass=M):
+    pass
+
+reveal_type(Cls.attr) # N: Revealed type is "builtins.int"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/class_attr_hook.py
+
+[case testClassAttrPluginPartialType]
+# flags: --config-file tmp/mypy.ini
+
+class Cls:
+    attr = None
+    def f(self) -> int:
+        return Cls.attr + 1
+
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/class_attr_hook.py
+
+[case testAddClassMethodPlugin]
+# flags: --config-file tmp/mypy.ini
+class BaseAddMethod: pass
+
+class MyClass(BaseAddMethod):
+    pass
+
+reveal_type(MyClass.foo_classmethod)  # N: Revealed type is "def ()"
+reveal_type(MyClass.foo_staticmethod)  # N: Revealed type is "def (builtins.int) -> builtins.str"
+
+my_class = MyClass()
+reveal_type(my_class.foo_classmethod)  # N: Revealed type is "def ()"
+reveal_type(my_class.foo_staticmethod)  # N: Revealed type is "def (builtins.int) -> builtins.str"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/add_classmethod.py
+
+[case testAddOverloadedMethodPlugin]
+# flags: --config-file tmp/mypy.ini
+class AddOverloadedMethod: pass
+
+class MyClass(AddOverloadedMethod):
+    pass
+
+reveal_type(MyClass.method)  # N: Revealed type is "Overload(def (self: __main__.MyClass, arg: builtins.int) -> builtins.str, def (self: __main__.MyClass, arg: builtins.str) -> builtins.int)"
+reveal_type(MyClass.clsmethod)  # N: Revealed type is "Overload(def (arg: builtins.int) -> builtins.str, def (arg: builtins.str) -> builtins.int)"
+reveal_type(MyClass.stmethod)  # N: Revealed type is "Overload(def (arg: builtins.int) -> builtins.str, def (arg: builtins.str) -> builtins.int)"
+
+my_class = MyClass()
+reveal_type(my_class.method)  # N: Revealed type is "Overload(def (arg: builtins.int) -> builtins.str, def (arg: builtins.str) -> builtins.int)"
+reveal_type(my_class.clsmethod)  # N: Revealed type is "Overload(def (arg: builtins.int) -> builtins.str, def (arg: builtins.str) -> builtins.int)"
+reveal_type(my_class.stmethod)  # N: Revealed type is "Overload(def (arg: builtins.int) -> builtins.str, def (arg: builtins.str) -> builtins.int)"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/add_overloaded_method.py
+
+[case testAddMethodPluginExplicitOverride]
+# flags: --python-version 3.12 --config-file tmp/mypy.ini
+from typing import override, TypeVar
+
+T = TypeVar('T', bound=type)
+
+def inject_foo(t: T) -> T:
+    # Imitates:
+    # t.foo_implicit = some_method
+    return t
+
+class BaseWithoutFoo: pass
+
+@inject_foo
+class ChildWithFoo(BaseWithoutFoo): pass
+reveal_type(ChildWithFoo.foo_implicit)  # N: Revealed type is "def (self: __main__.ChildWithFoo)"
+
+@inject_foo
+class SomeWithFoo(ChildWithFoo): pass
+reveal_type(SomeWithFoo.foo_implicit)  # N: Revealed type is "def (self: __main__.SomeWithFoo)"
+
+class ExplicitOverride(SomeWithFoo):
+    @override
+    def foo_implicit(self) -> None: pass
+
+class ImplicitOverride(SomeWithFoo):
+    def foo_implicit(self) -> None: pass  # E: Method "foo_implicit" is not using @override but is overriding a method in class "__main__.SomeWithFoo"
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/add_method.py
+enable_error_code = explicit-override
+[typing fixtures/typing-override.pyi]
+
+[case testCustomErrorCodePlugin]
+# flags: --config-file tmp/mypy.ini  --show-error-codes
+def main() -> int:
+    return 2
+
+main()  # E: Custom error  [custom]
+reveal_type(1)  # N: Revealed type is "Literal[1]?"
+
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/custom_errorcode.py
+
+
+[case testPyprojectPluginsTrailingComma]
+# flags: --config-file tmp/pyproject.toml
+[file pyproject.toml]
+# This test checks that trailing commas in string-based `plugins` are allowed.
+\[tool.mypy]
+plugins = """
+  <ROOT>/test-data/unit/plugins/function_sig_hook.py,
+  <ROOT>/test-data/unit/plugins/method_in_decorator.py,
+"""
+[out]
+
+
+
+[case magicMethodReverse]
+# flags: --config-file tmp/mypy.ini
+from typing import Literal
+
+op1: Literal[3] = 3
+op2: Literal[4] = 4
+c = op1 + op2
+reveal_type(c) # N: Revealed type is "Literal[7]"
+
+[file mypy.ini]
+\[mypy]
+plugins=<ROOT>/test-data/unit/plugins/magic_method.py
+[builtins fixtures/ops.pyi]

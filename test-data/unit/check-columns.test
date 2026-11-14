@@ -4,7 +4,7 @@
 f()
 1 +
 [out]
-main:2:5: error: invalid syntax
+main:2:5: error: Expected an expression
 
 [case testColumnsNestedFunctions]
 import typing
@@ -27,7 +27,6 @@ A().f(1, 1) # E:10: Argument 2 to "f" of "A" has incompatible type "int"; expect
 (A().f(1, 'hello', 'hi')) # E:2: Too many arguments for "f" of "A"
 
 [case testColumnsInvalidArgumentType]
-# flags: --strict-optional
 def f(x: int, y: str) -> None: ...
 def g(*x: int) -> None: pass
 def h(**x: int) -> None: pass
@@ -48,13 +47,13 @@ aaa: str
 h(x=1, y=aaa, z=2) # E:10: Argument "y" to "h" has incompatible type "str"; expected "int"
 a: A
 ff(a.x) # E:4: Argument 1 to "ff" has incompatible type "str"; expected "int"
-ff([1]) # E:4: Argument 1 to "ff" has incompatible type "List[int]"; expected "int"
+ff([1]) # E:4: Argument 1 to "ff" has incompatible type "list[int]"; expected "int"
 # TODO: Different column in Python 3.8+
-#ff([1 for x in [1]]) # Argument 1 to "ff" has incompatible type "List[int]"; expected "int"
-ff({1: 2}) # E:4: Argument 1 to "ff" has incompatible type "Dict[int, int]"; expected "int"
+#ff([1 for x in [1]]) # Argument 1 to "ff" has incompatible type "list[int]"; expected "int"
+ff({1: 2}) # E:4: Argument 1 to "ff" has incompatible type "dict[int, int]"; expected "int"
 ff(1.1) # E:4: Argument 1 to "ff" has incompatible type "float"; expected "int"
 # TODO: Different column in Python 3.8+
-#ff( ( 1, 1)) # Argument 1 to "ff" has incompatible type "Tuple[int, int]"; expected "int"
+#ff( ( 1, 1)) # Argument 1 to "ff" has incompatible type "tuple[int, int]"; expected "int"
 ff(-a) # E:4: Argument 1 to "ff" has incompatible type "str"; expected "int"
 ff(a + 1) # E:4: Argument 1 to "ff" has incompatible type "str"; expected "int"
 ff(a < 1) # E:4: Argument 1 to "ff" has incompatible type "str"; expected "int"
@@ -70,9 +69,9 @@ def f(*x: int) -> None: pass
 def g(**x: int) -> None: pass
 
 a = ['']
-f(*a)  # E:4: Argument 1 to "f" has incompatible type "*List[str]"; expected "int"
+f(*a)  # E:4: Argument 1 to "f" has incompatible type "*list[str]"; expected "int"
 b = {'x': 'y'}
-g(**b) # E:5: Argument 1 to "g" has incompatible type "**Dict[str, str]"; expected "int"
+g(**b) # E:5: Argument 1 to "g" has incompatible type "**dict[str, str]"; expected "int"
 [builtins fixtures/dict.pyi]
 
 [case testColumnsMultipleStatementsPerLine]
@@ -144,11 +143,10 @@ def g(*, x: int) -> None: pass
 [case testColumnDefinedHere]
 class A: pass
 if int():
-    def f(a: 'A') -> None: pass # N:5: "f" defined here
+    def f(a: 'A') -> None: pass
     (f(b=object())) # E:6: Unexpected keyword argument "b" for "f"
 
 [case testColumnInvalidType]
-
 from typing import Iterable
 
 bad = 0
@@ -159,8 +157,8 @@ def f(x: bad): # E:10: Variable "__main__.bad" is not valid as a type \
            # N:8: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 
 if int():
-    def g(x): # E:5: Variable "__main__.bad" is not valid as a type \
-              # N:5: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+    def g(x): # E:11: Variable "__main__.bad" is not valid as a type \
+              # N:11: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
         # type: (bad) -> None
         y = 0  # type: bad  # E:9: Variable "__main__.bad" is not valid as a type \
                             # N:9: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
@@ -169,22 +167,6 @@ z: Iterable[bad] # E:13: Variable "__main__.bad" is not valid as a type \
                  # N:13: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 h: bad[int] # E:4: Variable "__main__.bad" is not valid as a type \
             # N:4: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-
-[case testColumnInvalidType_python2]
-
-from typing import Iterable
-
-bad = 0
-
-if int():
-    def g(x): # E:5: Variable "__main__.bad" is not valid as a type \
-              # N:5: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-        # type: (bad) -> None
-        y = 0  # type: bad  # E:9: Variable "__main__.bad" is not valid as a type \
-                            # N:9: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
-
-    z = ()  # type: Iterable[bad] # E:5: Variable "__main__.bad" is not valid as a type \
-                                  # N:5: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 
 [case testColumnFunctionMissingTypeAnnotation]
 # flags: --disallow-untyped-defs
@@ -200,7 +182,7 @@ if int():
 
 [case testColumnNeedTypeAnnotation]
 if 1:
-    x = [] # E:5: Need type annotation for "x" (hint: "x: List[<type>] = ...")
+    x = [] # E:5: Need type annotation for "x" (hint: "x: list[<type>] = ...")
 [builtins fixtures/list.pyi]
 
 [case testColumnCallToUntypedFunction]
@@ -216,14 +198,6 @@ def f(x, y): pass
 (f()) # E:2: Missing positional arguments "x", "y" in call to "f"
 (f(y=1)) # E:2: Missing positional argument "x" in call to "f"
 
-[case testColumnTooFewSuperArgs_python2]
-class A:
-    def f(self):
-        pass
-class B(A):
-    def f(self):   # type: () -> None
-        super().f()  # E:9: Too few arguments for "super"
-
 [case testColumnListOrDictItemHasIncompatibleType]
 from typing import List, Dict
 x: List[int] = [
@@ -235,12 +209,12 @@ y: Dict[int, int] = {
 [builtins fixtures/dict.pyi]
 
 [case testColumnCannotDetermineType]
-(x)  # E:2: Cannot determine type of "x"
+(x)  # E:2: Cannot determine type of "x"  # E:2: Name "x" is used before definition
 x = None
 
 [case testColumnInvalidIndexing]
 from typing import List
-([1]['']) # E:6: Invalid index type "str" for "List[int]"; expected type "int"
+([1]['']) # E:6: Invalid index type "str" for "list[int]"; expected type "int"
 (1[1]) # E:2: Value of type "int" is not indexable
 def f() -> None:
     1[1] = 1 # E:5: Unsupported target for indexed assignment ("int")
@@ -252,9 +226,19 @@ class D(TypedDict):
     x: int
 t: D = {'x':
     'y'} # E:5: Incompatible types (expression has type "str", TypedDict item "x" has type "int")
+s: str
 
 if int():
-    del t['y'] # E:5: TypedDict "D" has no key "y"
+    del t[s]    # E:11: Expected TypedDict key to be string literal
+    del t["x"]  # E:11: Key "x" of TypedDict "D" cannot be deleted
+    del t["y"]  # E:11: TypedDict "D" has no key "y"
+
+t.pop(s)    # E:7: Expected TypedDict key to be string literal
+t.pop("y")  # E:7: TypedDict "D" has no key "y"
+
+t.setdefault(s, 123)    # E:14: Expected TypedDict key to be string literal
+t.setdefault("x", "a")  # E:19: Argument 2 to "setdefault" of "TypedDict" has incompatible type "str"; expected "int"
+t.setdefault("y", 123)  # E:14: TypedDict "D" has no key "y"
 [builtins fixtures/dict.pyi]
 [typing fixtures/typing-typeddict.pyi]
 
@@ -262,26 +246,30 @@ if int():
 class A:
     def f(self, x: int) -> None: pass
 class B(A):
-    def f(self, x: str) -> None: pass # E:5: Argument 1 of "f" is incompatible with supertype "A"; supertype defines the argument type as "int" \
-                                      # N:5: This violates the Liskov substitution principle \
-                                      # N:5: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
+    def f(self, x: str) -> None: pass # E:17: Argument 1 of "f" is incompatible with supertype "A"; supertype defines the argument type as "int" \
+                                      # N:17: This violates the Liskov substitution principle \
+                                      # N:17: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
 class C(A):
     def f(self, x: int) -> int: pass # E:5: Return type "int" of "f" incompatible with return type "None" in supertype "A"
 class D(A):
-    def f(self) -> None: pass # E:5: Signature of "f" incompatible with supertype "A"
+    def f(self) -> None: pass # E:5: Signature of "f" incompatible with supertype "A" \
+                              # N:5:      Superclass: \
+                              # N:5:          def f(self, x: int) -> None \
+                              # N:5:      Subclass: \
+                              # N:5:          def f(self) -> None
 
 [case testColumnMissingTypeParameters]
 # flags: --disallow-any-generics
 from typing import List, Callable
-def f(x: List) -> None: pass # E:10: Missing type parameters for generic type "List"
-def g(x: list) -> None: pass # E:10: Implicit generic "Any". Use "typing.List" and specify generic parameters
+def f(x: List) -> None: pass # E:10: Missing type arguments for generic type "List"
+def g(x: list) -> None: pass # E:10: Missing type arguments for generic type "list"
 if int():
-    c: Callable # E:8: Missing type parameters for generic type "Callable"
+    c: Callable # E:8: Missing type arguments for generic type "Callable"
 [builtins fixtures/list.pyi]
 
 [case testColumnIncompatibleDefault]
 if int():
-    def f(x: int = '') -> None: # E:20: Incompatible default for argument "x" (default has type "str", argument has type "int")
+    def f(x: int = '') -> None: # E:20: Incompatible default for parameter "x" (default has type "str", parameter has type "int")
         pass
 
 [case testColumnMissingProtocolMember]
@@ -308,13 +296,7 @@ x = cast(int, y) # E:5: Redundant cast to "int"
 
 [case testColumnTypeSignatureHasTooFewArguments]
 if int():
-    def f(x, y): # E:5: Type signature has too few arguments
-        # type: (int) -> None
-        pass
-
-[case testColumnTypeSignatureHasTooFewArguments_python2]
-if int():
-    def f(x, y): # E:5: Type signature has too few arguments
+    def f(x, y): # E:5: Type signature has too few parameters
         # type: (int) -> None
         pass
 
@@ -337,8 +319,17 @@ T = TypeVar('T', int, str)
 class C(Generic[T]):
     pass
 
-def f(c: C[object]) -> None: pass # E:10: Value of type variable "T" of "C" cannot be "object"
+def f(c: C[object]) -> None: pass # E:12: Value of type variable "T" of "C" cannot be "object"
 (C[object]()) # E:2: Value of type variable "T" of "C" cannot be "object"
+
+[case testColumnInvalidLocationForParamSpec]
+from typing import List
+from typing_extensions import ParamSpec
+
+P = ParamSpec('P')
+def foo(x: List[P]): pass  # E:17: Invalid location for ParamSpec "P" \
+                           # N:17: You can use ParamSpec as the first argument to Callable, e.g., "Callable[P, int]"
+[builtins fixtures/list.pyi]
 
 [case testColumnSyntaxErrorInTypeAnnotation]
 if int():
@@ -354,7 +345,8 @@ if int():
     # TODO: It would be better to point to the type comment
     xyz = 0  # type: blurbnard blarb
 [out]
-main:3:5: error: syntax error in type comment "blurbnard blarb"
+main:3:5: error: Syntax error in type comment "blurbnard blarb"
+main:3:5: error: Invalid type comment or annotation
 
 [case testColumnProperty]
 class A:
@@ -368,22 +360,6 @@ class B(A):
     @property  # E:6: Read-only property cannot override read-write property
     def x(self) -> int: pass
 [builtins fixtures/property.pyi]
-
-[case testColumnProperty_python2]
-class A:
-    @property
-    def x(self): # type: () -> int
-        pass
-
-    @x.setter
-    def x(self, x): # type: (int) -> None
-        pass
-
-class B(A):
-    @property  # E:5: Read-only property cannot override read-write property
-    def x(self): # type: () -> int
-        pass
-[builtins_py2 fixtures/property_py2.pyi]
 
 [case testColumnOverloaded]
 from typing import overload, Any
@@ -407,8 +383,7 @@ def f(x: T) -> T:
     y: List[int, str] # E:8: "list" expects 1 type argument, but 2 given
     del 1[0] # E:5: "int" has no attribute "__delitem__"
     bb: List[int] = [''] # E:22: List item 0 has incompatible type "str"; expected "int"
-    # XXX: Disabled because the column differs in 3.8
-    # aa: List[int] = ['' for x in [1]] # :22: List comprehension has incompatible type List[str]; expected List[int]
+    aa: List[int] = ['' for x in [1]] # E:22: List comprehension has incompatible type List[str]; expected List[int]
     cc = 1 .bad # E:10: "int" has no attribute "bad"
     n: int = '' # E:14: Incompatible types in assignment (expression has type "str", variable has type "int")
     return x
@@ -417,3 +392,39 @@ def f(x: T) -> T:
 [case testColumnReturnValueExpected]
 def f() -> int:
     return  # E:5: Return value expected
+
+[case testCheckEndColumnPositions]
+# flags: --show-error-end
+x: int = "no way"
+
+def g() -> int: ...
+def f(x: str) -> None: ...
+f(g(
+))
+x[0]
+[out]
+main:2:10:2:17: error: Incompatible types in assignment (expression has type "str", variable has type "int")
+main:6:3:7:1: error: Argument 1 to "f" has incompatible type "int"; expected "str"
+main:8:1:8:4: error: Value of type "int" is not indexable
+
+[case testColumnsMissingPositionalArgShiftDetected]
+def f(x: int, y: str, z: bytes, aa: int) -> None: ...
+f(1, b'x', 1) # E:6: Missing positional argument "y" in call to "f"
+def g(x: int, y: str, z: bytes) -> None: ...
+g("hello", b'x') # E:3: Missing positional argument "x" in call to "g"
+g(1, "hello") # E:1: Missing positional argument "z" in call to "g"
+[builtins fixtures/primitives.pyi]
+
+[case testEndColumnsWithTooManyTypeVars]
+# flags: --pretty
+import typing
+
+x1: typing.List[typing.List[int, int]]
+x2: list[list[int, int]]
+[out]
+main:4:17: error: "list" expects 1 type argument, but 2 given
+    x1: typing.List[typing.List[int, int]]
+                    ^~~~~~~~~~~~~~~~~~~~~
+main:5:10: error: "list" expects 1 type argument, but 2 given
+    x2: list[list[int, int]]
+             ^~~~~~~~~~~~~~

@@ -1,13 +1,233 @@
-import os
 import sys
+from _sqlite3 import (
+    PARSE_COLNAMES as PARSE_COLNAMES,
+    PARSE_DECLTYPES as PARSE_DECLTYPES,
+    SQLITE_ALTER_TABLE as SQLITE_ALTER_TABLE,
+    SQLITE_ANALYZE as SQLITE_ANALYZE,
+    SQLITE_ATTACH as SQLITE_ATTACH,
+    SQLITE_CREATE_INDEX as SQLITE_CREATE_INDEX,
+    SQLITE_CREATE_TABLE as SQLITE_CREATE_TABLE,
+    SQLITE_CREATE_TEMP_INDEX as SQLITE_CREATE_TEMP_INDEX,
+    SQLITE_CREATE_TEMP_TABLE as SQLITE_CREATE_TEMP_TABLE,
+    SQLITE_CREATE_TEMP_TRIGGER as SQLITE_CREATE_TEMP_TRIGGER,
+    SQLITE_CREATE_TEMP_VIEW as SQLITE_CREATE_TEMP_VIEW,
+    SQLITE_CREATE_TRIGGER as SQLITE_CREATE_TRIGGER,
+    SQLITE_CREATE_VIEW as SQLITE_CREATE_VIEW,
+    SQLITE_CREATE_VTABLE as SQLITE_CREATE_VTABLE,
+    SQLITE_DELETE as SQLITE_DELETE,
+    SQLITE_DENY as SQLITE_DENY,
+    SQLITE_DETACH as SQLITE_DETACH,
+    SQLITE_DONE as SQLITE_DONE,
+    SQLITE_DROP_INDEX as SQLITE_DROP_INDEX,
+    SQLITE_DROP_TABLE as SQLITE_DROP_TABLE,
+    SQLITE_DROP_TEMP_INDEX as SQLITE_DROP_TEMP_INDEX,
+    SQLITE_DROP_TEMP_TABLE as SQLITE_DROP_TEMP_TABLE,
+    SQLITE_DROP_TEMP_TRIGGER as SQLITE_DROP_TEMP_TRIGGER,
+    SQLITE_DROP_TEMP_VIEW as SQLITE_DROP_TEMP_VIEW,
+    SQLITE_DROP_TRIGGER as SQLITE_DROP_TRIGGER,
+    SQLITE_DROP_VIEW as SQLITE_DROP_VIEW,
+    SQLITE_DROP_VTABLE as SQLITE_DROP_VTABLE,
+    SQLITE_FUNCTION as SQLITE_FUNCTION,
+    SQLITE_IGNORE as SQLITE_IGNORE,
+    SQLITE_INSERT as SQLITE_INSERT,
+    SQLITE_OK as SQLITE_OK,
+    SQLITE_PRAGMA as SQLITE_PRAGMA,
+    SQLITE_READ as SQLITE_READ,
+    SQLITE_RECURSIVE as SQLITE_RECURSIVE,
+    SQLITE_REINDEX as SQLITE_REINDEX,
+    SQLITE_SAVEPOINT as SQLITE_SAVEPOINT,
+    SQLITE_SELECT as SQLITE_SELECT,
+    SQLITE_TRANSACTION as SQLITE_TRANSACTION,
+    SQLITE_UPDATE as SQLITE_UPDATE,
+    adapt as adapt,
+    adapters as adapters,
+    complete_statement as complete_statement,
+    connect as connect,
+    converters as converters,
+    enable_callback_tracebacks as enable_callback_tracebacks,
+    register_adapter as register_adapter,
+    register_converter as register_converter,
+    sqlite_version as sqlite_version,
+)
 from datetime import date, datetime, time
-from typing import Any, Callable, Generator, Iterable, Iterator, List, Optional, Text, Tuple, Type, TypeVar, Union
+from sqlite3 import (
+    Connection as Connection,
+    Cursor as Cursor,
+    DatabaseError as DatabaseError,
+    DataError as DataError,
+    Error as Error,
+    IntegrityError as IntegrityError,
+    InterfaceError as InterfaceError,
+    InternalError as InternalError,
+    NotSupportedError as NotSupportedError,
+    OperationalError as OperationalError,
+    PrepareProtocol as PrepareProtocol,
+    ProgrammingError as ProgrammingError,
+    Row as Row,
+    Warning as Warning,
+)
+from typing import Final, Literal
+from typing_extensions import deprecated
 
-_T = TypeVar("_T")
+if sys.version_info >= (3, 12):
+    from _sqlite3 import (
+        LEGACY_TRANSACTION_CONTROL as LEGACY_TRANSACTION_CONTROL,
+        SQLITE_DBCONFIG_DEFENSIVE as SQLITE_DBCONFIG_DEFENSIVE,
+        SQLITE_DBCONFIG_DQS_DDL as SQLITE_DBCONFIG_DQS_DDL,
+        SQLITE_DBCONFIG_DQS_DML as SQLITE_DBCONFIG_DQS_DML,
+        SQLITE_DBCONFIG_ENABLE_FKEY as SQLITE_DBCONFIG_ENABLE_FKEY,
+        SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER as SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER,
+        SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION as SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
+        SQLITE_DBCONFIG_ENABLE_QPSG as SQLITE_DBCONFIG_ENABLE_QPSG,
+        SQLITE_DBCONFIG_ENABLE_TRIGGER as SQLITE_DBCONFIG_ENABLE_TRIGGER,
+        SQLITE_DBCONFIG_ENABLE_VIEW as SQLITE_DBCONFIG_ENABLE_VIEW,
+        SQLITE_DBCONFIG_LEGACY_ALTER_TABLE as SQLITE_DBCONFIG_LEGACY_ALTER_TABLE,
+        SQLITE_DBCONFIG_LEGACY_FILE_FORMAT as SQLITE_DBCONFIG_LEGACY_FILE_FORMAT,
+        SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE as SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+        SQLITE_DBCONFIG_RESET_DATABASE as SQLITE_DBCONFIG_RESET_DATABASE,
+        SQLITE_DBCONFIG_TRIGGER_EQP as SQLITE_DBCONFIG_TRIGGER_EQP,
+        SQLITE_DBCONFIG_TRUSTED_SCHEMA as SQLITE_DBCONFIG_TRUSTED_SCHEMA,
+        SQLITE_DBCONFIG_WRITABLE_SCHEMA as SQLITE_DBCONFIG_WRITABLE_SCHEMA,
+    )
 
-paramstyle: str
-threadsafety: int
-apilevel: str
+if sys.version_info >= (3, 15):
+    from _sqlite3 import SQLITE_KEYWORDS as SQLITE_KEYWORDS
+
+if sys.version_info >= (3, 11):
+    from _sqlite3 import (
+        SQLITE_ABORT as SQLITE_ABORT,
+        SQLITE_ABORT_ROLLBACK as SQLITE_ABORT_ROLLBACK,
+        SQLITE_AUTH as SQLITE_AUTH,
+        SQLITE_AUTH_USER as SQLITE_AUTH_USER,
+        SQLITE_BUSY as SQLITE_BUSY,
+        SQLITE_BUSY_RECOVERY as SQLITE_BUSY_RECOVERY,
+        SQLITE_BUSY_SNAPSHOT as SQLITE_BUSY_SNAPSHOT,
+        SQLITE_BUSY_TIMEOUT as SQLITE_BUSY_TIMEOUT,
+        SQLITE_CANTOPEN as SQLITE_CANTOPEN,
+        SQLITE_CANTOPEN_CONVPATH as SQLITE_CANTOPEN_CONVPATH,
+        SQLITE_CANTOPEN_DIRTYWAL as SQLITE_CANTOPEN_DIRTYWAL,
+        SQLITE_CANTOPEN_FULLPATH as SQLITE_CANTOPEN_FULLPATH,
+        SQLITE_CANTOPEN_ISDIR as SQLITE_CANTOPEN_ISDIR,
+        SQLITE_CANTOPEN_NOTEMPDIR as SQLITE_CANTOPEN_NOTEMPDIR,
+        SQLITE_CANTOPEN_SYMLINK as SQLITE_CANTOPEN_SYMLINK,
+        SQLITE_CONSTRAINT as SQLITE_CONSTRAINT,
+        SQLITE_CONSTRAINT_CHECK as SQLITE_CONSTRAINT_CHECK,
+        SQLITE_CONSTRAINT_COMMITHOOK as SQLITE_CONSTRAINT_COMMITHOOK,
+        SQLITE_CONSTRAINT_FOREIGNKEY as SQLITE_CONSTRAINT_FOREIGNKEY,
+        SQLITE_CONSTRAINT_FUNCTION as SQLITE_CONSTRAINT_FUNCTION,
+        SQLITE_CONSTRAINT_NOTNULL as SQLITE_CONSTRAINT_NOTNULL,
+        SQLITE_CONSTRAINT_PINNED as SQLITE_CONSTRAINT_PINNED,
+        SQLITE_CONSTRAINT_PRIMARYKEY as SQLITE_CONSTRAINT_PRIMARYKEY,
+        SQLITE_CONSTRAINT_ROWID as SQLITE_CONSTRAINT_ROWID,
+        SQLITE_CONSTRAINT_TRIGGER as SQLITE_CONSTRAINT_TRIGGER,
+        SQLITE_CONSTRAINT_UNIQUE as SQLITE_CONSTRAINT_UNIQUE,
+        SQLITE_CONSTRAINT_VTAB as SQLITE_CONSTRAINT_VTAB,
+        SQLITE_CORRUPT as SQLITE_CORRUPT,
+        SQLITE_CORRUPT_INDEX as SQLITE_CORRUPT_INDEX,
+        SQLITE_CORRUPT_SEQUENCE as SQLITE_CORRUPT_SEQUENCE,
+        SQLITE_CORRUPT_VTAB as SQLITE_CORRUPT_VTAB,
+        SQLITE_EMPTY as SQLITE_EMPTY,
+        SQLITE_ERROR as SQLITE_ERROR,
+        SQLITE_ERROR_MISSING_COLLSEQ as SQLITE_ERROR_MISSING_COLLSEQ,
+        SQLITE_ERROR_RETRY as SQLITE_ERROR_RETRY,
+        SQLITE_ERROR_SNAPSHOT as SQLITE_ERROR_SNAPSHOT,
+        SQLITE_FORMAT as SQLITE_FORMAT,
+        SQLITE_FULL as SQLITE_FULL,
+        SQLITE_INTERNAL as SQLITE_INTERNAL,
+        SQLITE_INTERRUPT as SQLITE_INTERRUPT,
+        SQLITE_IOERR as SQLITE_IOERR,
+        SQLITE_IOERR_ACCESS as SQLITE_IOERR_ACCESS,
+        SQLITE_IOERR_AUTH as SQLITE_IOERR_AUTH,
+        SQLITE_IOERR_BEGIN_ATOMIC as SQLITE_IOERR_BEGIN_ATOMIC,
+        SQLITE_IOERR_BLOCKED as SQLITE_IOERR_BLOCKED,
+        SQLITE_IOERR_CHECKRESERVEDLOCK as SQLITE_IOERR_CHECKRESERVEDLOCK,
+        SQLITE_IOERR_CLOSE as SQLITE_IOERR_CLOSE,
+        SQLITE_IOERR_COMMIT_ATOMIC as SQLITE_IOERR_COMMIT_ATOMIC,
+        SQLITE_IOERR_CONVPATH as SQLITE_IOERR_CONVPATH,
+        SQLITE_IOERR_CORRUPTFS as SQLITE_IOERR_CORRUPTFS,
+        SQLITE_IOERR_DATA as SQLITE_IOERR_DATA,
+        SQLITE_IOERR_DELETE as SQLITE_IOERR_DELETE,
+        SQLITE_IOERR_DELETE_NOENT as SQLITE_IOERR_DELETE_NOENT,
+        SQLITE_IOERR_DIR_CLOSE as SQLITE_IOERR_DIR_CLOSE,
+        SQLITE_IOERR_DIR_FSYNC as SQLITE_IOERR_DIR_FSYNC,
+        SQLITE_IOERR_FSTAT as SQLITE_IOERR_FSTAT,
+        SQLITE_IOERR_FSYNC as SQLITE_IOERR_FSYNC,
+        SQLITE_IOERR_GETTEMPPATH as SQLITE_IOERR_GETTEMPPATH,
+        SQLITE_IOERR_LOCK as SQLITE_IOERR_LOCK,
+        SQLITE_IOERR_MMAP as SQLITE_IOERR_MMAP,
+        SQLITE_IOERR_NOMEM as SQLITE_IOERR_NOMEM,
+        SQLITE_IOERR_RDLOCK as SQLITE_IOERR_RDLOCK,
+        SQLITE_IOERR_READ as SQLITE_IOERR_READ,
+        SQLITE_IOERR_ROLLBACK_ATOMIC as SQLITE_IOERR_ROLLBACK_ATOMIC,
+        SQLITE_IOERR_SEEK as SQLITE_IOERR_SEEK,
+        SQLITE_IOERR_SHMLOCK as SQLITE_IOERR_SHMLOCK,
+        SQLITE_IOERR_SHMMAP as SQLITE_IOERR_SHMMAP,
+        SQLITE_IOERR_SHMOPEN as SQLITE_IOERR_SHMOPEN,
+        SQLITE_IOERR_SHMSIZE as SQLITE_IOERR_SHMSIZE,
+        SQLITE_IOERR_SHORT_READ as SQLITE_IOERR_SHORT_READ,
+        SQLITE_IOERR_TRUNCATE as SQLITE_IOERR_TRUNCATE,
+        SQLITE_IOERR_UNLOCK as SQLITE_IOERR_UNLOCK,
+        SQLITE_IOERR_VNODE as SQLITE_IOERR_VNODE,
+        SQLITE_IOERR_WRITE as SQLITE_IOERR_WRITE,
+        SQLITE_LIMIT_ATTACHED as SQLITE_LIMIT_ATTACHED,
+        SQLITE_LIMIT_COLUMN as SQLITE_LIMIT_COLUMN,
+        SQLITE_LIMIT_COMPOUND_SELECT as SQLITE_LIMIT_COMPOUND_SELECT,
+        SQLITE_LIMIT_EXPR_DEPTH as SQLITE_LIMIT_EXPR_DEPTH,
+        SQLITE_LIMIT_FUNCTION_ARG as SQLITE_LIMIT_FUNCTION_ARG,
+        SQLITE_LIMIT_LENGTH as SQLITE_LIMIT_LENGTH,
+        SQLITE_LIMIT_LIKE_PATTERN_LENGTH as SQLITE_LIMIT_LIKE_PATTERN_LENGTH,
+        SQLITE_LIMIT_SQL_LENGTH as SQLITE_LIMIT_SQL_LENGTH,
+        SQLITE_LIMIT_TRIGGER_DEPTH as SQLITE_LIMIT_TRIGGER_DEPTH,
+        SQLITE_LIMIT_VARIABLE_NUMBER as SQLITE_LIMIT_VARIABLE_NUMBER,
+        SQLITE_LIMIT_VDBE_OP as SQLITE_LIMIT_VDBE_OP,
+        SQLITE_LIMIT_WORKER_THREADS as SQLITE_LIMIT_WORKER_THREADS,
+        SQLITE_LOCKED as SQLITE_LOCKED,
+        SQLITE_LOCKED_SHAREDCACHE as SQLITE_LOCKED_SHAREDCACHE,
+        SQLITE_LOCKED_VTAB as SQLITE_LOCKED_VTAB,
+        SQLITE_MISMATCH as SQLITE_MISMATCH,
+        SQLITE_MISUSE as SQLITE_MISUSE,
+        SQLITE_NOLFS as SQLITE_NOLFS,
+        SQLITE_NOMEM as SQLITE_NOMEM,
+        SQLITE_NOTADB as SQLITE_NOTADB,
+        SQLITE_NOTFOUND as SQLITE_NOTFOUND,
+        SQLITE_NOTICE as SQLITE_NOTICE,
+        SQLITE_NOTICE_RECOVER_ROLLBACK as SQLITE_NOTICE_RECOVER_ROLLBACK,
+        SQLITE_NOTICE_RECOVER_WAL as SQLITE_NOTICE_RECOVER_WAL,
+        SQLITE_OK_LOAD_PERMANENTLY as SQLITE_OK_LOAD_PERMANENTLY,
+        SQLITE_OK_SYMLINK as SQLITE_OK_SYMLINK,
+        SQLITE_PERM as SQLITE_PERM,
+        SQLITE_PROTOCOL as SQLITE_PROTOCOL,
+        SQLITE_RANGE as SQLITE_RANGE,
+        SQLITE_READONLY as SQLITE_READONLY,
+        SQLITE_READONLY_CANTINIT as SQLITE_READONLY_CANTINIT,
+        SQLITE_READONLY_CANTLOCK as SQLITE_READONLY_CANTLOCK,
+        SQLITE_READONLY_DBMOVED as SQLITE_READONLY_DBMOVED,
+        SQLITE_READONLY_DIRECTORY as SQLITE_READONLY_DIRECTORY,
+        SQLITE_READONLY_RECOVERY as SQLITE_READONLY_RECOVERY,
+        SQLITE_READONLY_ROLLBACK as SQLITE_READONLY_ROLLBACK,
+        SQLITE_ROW as SQLITE_ROW,
+        SQLITE_SCHEMA as SQLITE_SCHEMA,
+        SQLITE_TOOBIG as SQLITE_TOOBIG,
+        SQLITE_WARNING as SQLITE_WARNING,
+        SQLITE_WARNING_AUTOINDEX as SQLITE_WARNING_AUTOINDEX,
+    )
+    from sqlite3 import Blob as Blob
+
+if sys.version_info < (3, 14):
+    # Deprecated and removed from _sqlite3 in 3.12, but removed from here in 3.14.
+    version: Final[str]
+
+if sys.version_info < (3, 12):
+    # deprecation wrapper that has a different name for the argument...
+    @deprecated(
+        "Deprecated since Python 3.10; removed in Python 3.12. "
+        "Open database in URI mode using `cache=shared` parameter instead."
+    )
+    def enable_shared_cache(enable: int) -> None: ...
+
+paramstyle: Final = "qmark"
+threadsafety: Literal[0, 1, 3]
+apilevel: Final[str]
 Date = date
 Time = time
 Timestamp = datetime
@@ -16,285 +236,9 @@ def DateFromTicks(ticks: float) -> Date: ...
 def TimeFromTicks(ticks: float) -> Time: ...
 def TimestampFromTicks(ticks: float) -> Timestamp: ...
 
-version_info: Tuple[int, int, int]
-sqlite_version_info: Tuple[int, int, int]
-if sys.version_info >= (3,):
-    Binary = memoryview
-else:
-    Binary = buffer
+if sys.version_info < (3, 14):
+    # Deprecated in 3.12, removed in 3.14.
+    version_info: Final[tuple[int, int, int]]
 
-# The remaining definitions are imported from _sqlite3.
-
-PARSE_COLNAMES: int
-PARSE_DECLTYPES: int
-SQLITE_ALTER_TABLE: int
-SQLITE_ANALYZE: int
-SQLITE_ATTACH: int
-SQLITE_CREATE_INDEX: int
-SQLITE_CREATE_TABLE: int
-SQLITE_CREATE_TEMP_INDEX: int
-SQLITE_CREATE_TEMP_TABLE: int
-SQLITE_CREATE_TEMP_TRIGGER: int
-SQLITE_CREATE_TEMP_VIEW: int
-SQLITE_CREATE_TRIGGER: int
-SQLITE_CREATE_VIEW: int
-SQLITE_DELETE: int
-SQLITE_DENY: int
-SQLITE_DETACH: int
-SQLITE_DROP_INDEX: int
-SQLITE_DROP_TABLE: int
-SQLITE_DROP_TEMP_INDEX: int
-SQLITE_DROP_TEMP_TABLE: int
-SQLITE_DROP_TEMP_TRIGGER: int
-SQLITE_DROP_TEMP_VIEW: int
-SQLITE_DROP_TRIGGER: int
-SQLITE_DROP_VIEW: int
-SQLITE_IGNORE: int
-SQLITE_INSERT: int
-SQLITE_OK: int
-SQLITE_PRAGMA: int
-SQLITE_READ: int
-SQLITE_REINDEX: int
-SQLITE_SELECT: int
-SQLITE_TRANSACTION: int
-SQLITE_UPDATE: int
-adapters: Any
-converters: Any
-sqlite_version: str
-version: str
-
-# TODO: adapt needs to get probed
-def adapt(obj, protocol, alternate): ...
-def complete_statement(sql: str) -> bool: ...
-
-if sys.version_info >= (3, 7):
-    def connect(
-        database: Union[bytes, Text, os.PathLike[Text]],
-        timeout: float = ...,
-        detect_types: int = ...,
-        isolation_level: Optional[str] = ...,
-        check_same_thread: bool = ...,
-        factory: Optional[Type[Connection]] = ...,
-        cached_statements: int = ...,
-        uri: bool = ...,
-    ) -> Connection: ...
-
-elif sys.version_info >= (3, 4):
-    def connect(
-        database: Union[bytes, Text],
-        timeout: float = ...,
-        detect_types: int = ...,
-        isolation_level: Optional[str] = ...,
-        check_same_thread: bool = ...,
-        factory: Optional[Type[Connection]] = ...,
-        cached_statements: int = ...,
-        uri: bool = ...,
-    ) -> Connection: ...
-
-else:
-    def connect(
-        database: Union[bytes, Text],
-        timeout: float = ...,
-        detect_types: int = ...,
-        isolation_level: Optional[str] = ...,
-        check_same_thread: bool = ...,
-        factory: Optional[Type[Connection]] = ...,
-        cached_statements: int = ...,
-    ) -> Connection: ...
-
-def enable_callback_tracebacks(flag: bool) -> None: ...
-def enable_shared_cache(do_enable: int) -> None: ...
-def register_adapter(type: Type[_T], callable: Callable[[_T], Union[int, float, str, bytes]]) -> None: ...
-def register_converter(typename: str, callable: Callable[[bytes], Any]) -> None: ...
-
-if sys.version_info < (3, 8):
-    class Cache(object):
-        def __init__(self, *args, **kwargs) -> None: ...
-        def display(self, *args, **kwargs) -> None: ...
-        def get(self, *args, **kwargs) -> None: ...
-
-class Connection(object):
-    DataError: Any
-    DatabaseError: Any
-    Error: Any
-    IntegrityError: Any
-    InterfaceError: Any
-    InternalError: Any
-    NotSupportedError: Any
-    OperationalError: Any
-    ProgrammingError: Any
-    Warning: Any
-    in_transaction: Any
-    isolation_level: Any
-    row_factory: Any
-    text_factory: Any
-    total_changes: Any
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    def close(self) -> None: ...
-    def commit(self) -> None: ...
-    def create_aggregate(self, name: str, num_params: int, aggregate_class: type) -> None: ...
-    def create_collation(self, name: str, callable: Any) -> None: ...
-    if sys.version_info >= (3, 8):
-        def create_function(self, name: str, num_params: int, func: Any, *, deterministic: bool = ...) -> None: ...
-    else:
-        def create_function(self, name: str, num_params: int, func: Any) -> None: ...
-    def cursor(self, cursorClass: Optional[type] = ...) -> Cursor: ...
-    def execute(self, sql: str, parameters: Iterable[Any] = ...) -> Cursor: ...
-    # TODO: please check in executemany() if seq_of_parameters type is possible like this
-    def executemany(self, sql: str, seq_of_parameters: Iterable[Iterable[Any]]) -> Cursor: ...
-    def executescript(self, sql_script: Union[bytes, Text]) -> Cursor: ...
-    def interrupt(self, *args: Any, **kwargs: Any) -> None: ...
-    def iterdump(self, *args: Any, **kwargs: Any) -> Generator[str, None, None]: ...
-    def rollback(self, *args: Any, **kwargs: Any) -> None: ...
-    # TODO: set_authorizer(authorzer_callback)
-    # see https://docs.python.org/2/library/sqlite3.html#sqlite3.Connection.set_authorizer
-    # returns [SQLITE_OK, SQLITE_DENY, SQLITE_IGNORE] so perhaps int
-    def set_authorizer(self, *args: Any, **kwargs: Any) -> None: ...
-    # set_progress_handler(handler, n) -> see https://docs.python.org/2/library/sqlite3.html#sqlite3.Connection.set_progress_handler
-    def set_progress_handler(self, *args: Any, **kwargs: Any) -> None: ...
-    def set_trace_callback(self, *args: Any, **kwargs: Any) -> None: ...
-    # enable_load_extension and load_extension is not available on python distributions compiled
-    # without sqlite3 loadable extension support. see footnotes https://docs.python.org/3/library/sqlite3.html#f1
-    def enable_load_extension(self, enabled: bool) -> None: ...
-    def load_extension(self, path: str) -> None: ...
-    if sys.version_info >= (3, 7):
-        def backup(
-            self,
-            target: Connection,
-            *,
-            pages: int = ...,
-            progress: Optional[Callable[[int, int, int], object]] = ...,
-            name: str = ...,
-            sleep: float = ...,
-        ) -> None: ...
-    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
-    def __enter__(self) -> Connection: ...
-    def __exit__(self, t: Optional[type] = ..., exc: Optional[BaseException] = ..., tb: Optional[Any] = ...) -> None: ...
-
-class Cursor(Iterator[Any]):
-    arraysize: Any
-    connection: Any
-    description: Any
-    lastrowid: Any
-    row_factory: Any
-    rowcount: Any
-    # TODO: Cursor class accepts exactly 1 argument
-    # required type is sqlite3.Connection (which is imported as _Connection)
-    # however, the name of the __init__ variable is unknown
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    def close(self, *args: Any, **kwargs: Any) -> None: ...
-    def execute(self, sql: str, parameters: Iterable[Any] = ...) -> Cursor: ...
-    def executemany(self, sql: str, seq_of_parameters: Iterable[Iterable[Any]]) -> Cursor: ...
-    def executescript(self, sql_script: Union[bytes, Text]) -> Cursor: ...
-    def fetchall(self) -> List[Any]: ...
-    def fetchmany(self, size: Optional[int] = ...) -> List[Any]: ...
-    def fetchone(self) -> Any: ...
-    def setinputsizes(self, *args: Any, **kwargs: Any) -> None: ...
-    def setoutputsize(self, *args: Any, **kwargs: Any) -> None: ...
-    def __iter__(self) -> Cursor: ...
-    if sys.version_info >= (3, 0):
-        def __next__(self) -> Any: ...
-    else:
-        def next(self) -> Any: ...
-
-class DataError(DatabaseError): ...
-class DatabaseError(Error): ...
-class Error(Exception): ...
-class IntegrityError(DatabaseError): ...
-class InterfaceError(Error): ...
-class InternalError(DatabaseError): ...
-class NotSupportedError(DatabaseError): ...
-class OperationalError(DatabaseError): ...
-
-if sys.version_info >= (3,):
-    OptimizedUnicode = str
-else:
-    class OptimizedUnicode(object):
-        maketrans: Any
-        def __init__(self, *args, **kwargs): ...
-        def capitalize(self, *args, **kwargs): ...
-        def casefold(self, *args, **kwargs): ...
-        def center(self, *args, **kwargs): ...
-        def count(self, *args, **kwargs): ...
-        def encode(self, *args, **kwargs): ...
-        def endswith(self, *args, **kwargs): ...
-        def expandtabs(self, *args, **kwargs): ...
-        def find(self, *args, **kwargs): ...
-        def format(self, *args, **kwargs): ...
-        def format_map(self, *args, **kwargs): ...
-        def index(self, *args, **kwargs): ...
-        def isalnum(self, *args, **kwargs): ...
-        def isalpha(self, *args, **kwargs): ...
-        def isdecimal(self, *args, **kwargs): ...
-        def isdigit(self, *args, **kwargs): ...
-        def isidentifier(self, *args, **kwargs): ...
-        def islower(self, *args, **kwargs): ...
-        def isnumeric(self, *args, **kwargs): ...
-        def isprintable(self, *args, **kwargs): ...
-        def isspace(self, *args, **kwargs): ...
-        def istitle(self, *args, **kwargs): ...
-        def isupper(self, *args, **kwargs): ...
-        def join(self, *args, **kwargs): ...
-        def ljust(self, *args, **kwargs): ...
-        def lower(self, *args, **kwargs): ...
-        def lstrip(self, *args, **kwargs): ...
-        def partition(self, *args, **kwargs): ...
-        def replace(self, *args, **kwargs): ...
-        def rfind(self, *args, **kwargs): ...
-        def rindex(self, *args, **kwargs): ...
-        def rjust(self, *args, **kwargs): ...
-        def rpartition(self, *args, **kwargs): ...
-        def rsplit(self, *args, **kwargs): ...
-        def rstrip(self, *args, **kwargs): ...
-        def split(self, *args, **kwargs): ...
-        def splitlines(self, *args, **kwargs): ...
-        def startswith(self, *args, **kwargs): ...
-        def strip(self, *args, **kwargs): ...
-        def swapcase(self, *args, **kwargs): ...
-        def title(self, *args, **kwargs): ...
-        def translate(self, *args, **kwargs): ...
-        def upper(self, *args, **kwargs): ...
-        def zfill(self, *args, **kwargs): ...
-        def __add__(self, other): ...
-        def __contains__(self, *args, **kwargs): ...
-        def __eq__(self, other): ...
-        def __format__(self, *args, **kwargs): ...
-        def __ge__(self, other): ...
-        def __getitem__(self, index): ...
-        def __getnewargs__(self, *args, **kwargs): ...
-        def __gt__(self, other): ...
-        def __hash__(self): ...
-        def __iter__(self): ...
-        def __le__(self, other): ...
-        def __len__(self, *args, **kwargs): ...
-        def __lt__(self, other): ...
-        def __mod__(self, other): ...
-        def __mul__(self, other): ...
-        def __ne__(self, other): ...
-        def __rmod__(self, other): ...
-        def __rmul__(self, other): ...
-
-class PrepareProtocol(object):
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-
-class ProgrammingError(DatabaseError): ...
-
-class Row(object):
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    def keys(self, *args: Any, **kwargs: Any): ...
-    def __eq__(self, other): ...
-    def __ge__(self, other): ...
-    def __getitem__(self, index): ...
-    def __gt__(self, other): ...
-    def __hash__(self): ...
-    def __iter__(self): ...
-    def __le__(self, other): ...
-    def __len__(self): ...
-    def __lt__(self, other): ...
-    def __ne__(self, other): ...
-
-if sys.version_info < (3, 8):
-    class Statement(object):
-        def __init__(self, *args, **kwargs): ...
-
-class Warning(Exception): ...
+sqlite_version_info: Final[tuple[int, int, int]]
+Binary = memoryview

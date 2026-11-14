@@ -41,7 +41,7 @@ class C:
     def __init__(self, x: Tuple[int, Any]) -> None:
         self.x: Final = x
         self.y: Final[float] = 1
-reveal_type(C((1, 2)).x)  # N: Revealed type is "Tuple[builtins.int, Any]"
+reveal_type(C((1, 2)).x)  # N: Revealed type is "tuple[builtins.int, Any]"
 reveal_type(C((1, 2)).y)  # N: Revealed type is "builtins.float"
 [builtins fixtures/tuple.pyi]
 [out]
@@ -60,8 +60,6 @@ reveal_type(C().x)  # N: Revealed type is "builtins.float"
 [out]
 
 [case testFinalInvalidDefinitions]
-
-# Errors are shown in a different order with the new analyzer.
 from typing import Final, Any
 
 x = y = 1  # type: Final[float]  # E: Invalid final declaration
@@ -144,7 +142,7 @@ reveal_type(C().f)  # N: Revealed type is "Overload(def (x: builtins.int) -> bui
 [case testFinalDefiningMethOverloadedStubs]
 from mod import C
 
-reveal_type(C().f)
+reveal_type(C().f)  # N: Revealed type is "Overload(def (x: builtins.int) -> builtins.int, def (x: builtins.str) -> builtins.str)"
 [file mod.pyi]
 from typing import final, overload
 
@@ -157,12 +155,9 @@ class C:
 
     @overload
     def bad(self, x: int) -> int: ...
-    @final  # Error!
+    @final  # E: In a stub file @final must be applied only to the first overload
     @overload
     def bad(self, x: str) -> str: ...
-[out]
-tmp/mod.pyi:12: error: In a stub file @final must be applied only to the first overload
-main:3: note: Revealed type is "Overload(def (x: builtins.int) -> builtins.int, def (x: builtins.str) -> builtins.str)"
 
 [case testFinalDefiningProperty]
 from typing import final
@@ -194,6 +189,7 @@ def g(x: int) -> Final[int]: ...  # E: Final can be only used as an outermost qu
 [out]
 
 [case testFinalDefiningNotInMethodExtensions]
+# flags: --python-version 3.14
 from typing_extensions import Final
 
 def f(x: Final[int]) -> int: ...  # E: Final can be only used as an outermost qualifier in a variable annotation
@@ -250,7 +246,7 @@ class C(Generic[T]):
         self.x: Final = x
         self.y: Final = 1
 
-reveal_type(C((1, 2)).x)  # N: Revealed type is "Tuple[builtins.int*, builtins.int*]"
+reveal_type(C((1, 2)).x)  # N: Revealed type is "tuple[builtins.int, builtins.int]"
 C.x  # E: Cannot access final instance attribute "x" on class object \
      # E: Access to generic instance variables via class is ambiguous
 C.y  # E: Cannot access final instance attribute "y" on class object
@@ -299,6 +295,50 @@ class P(Protocol):
         pass
 [out]
 
+[case testFinalInProtocol]
+from typing import Final, Protocol, final
+
+class P(Protocol):
+    var1 : Final[int] = 0 # E: Protocol member cannot be final
+
+    @final # E: Protocol member cannot be final
+    def meth1(self) -> None:
+        var2: Final = 0
+
+    def meth2(self) -> None:
+        var3: Final = 0
+
+    def meth3(self) -> None:
+        class Inner:
+            var3: Final = 0  # OK
+
+            @final
+            def inner(self) -> None: ...
+
+    class Inner:
+        var3: Final = 0  # OK
+
+        @final
+        def inner(self) -> None: ...
+
+[out]
+
+[case testFinalWithClassVarInProtocol]
+from typing import Protocol, Final, final, ClassVar
+
+class P(Protocol):
+    var1 : Final[ClassVar[int]] = 0 # E: Variable should not be annotated with both ClassVar and Final
+    var2: ClassVar[int] = 1
+
+    @final # E: Protocol member cannot be final
+    def meth1(self) -> None:
+        ...
+
+    def meth2(self) -> None:
+        var3: Final[ClassVar[int]] = 0 # E: Variable should not be annotated with both ClassVar and Final # E: ClassVar can only be used for assignments in class body
+
+[out]
+
 [case testFinalNotInLoops]
 from typing import Final
 
@@ -345,7 +385,7 @@ class C:
 -- Reassignments
 
 [case testFinalReassignModuleVar]
-# flags: --allow-redefinition
+# flags: --allow-redefinition-old
 from typing import Final
 
 x: Final = 1
@@ -372,7 +412,7 @@ z: Final = 2  # E: Cannot redefine an existing name as final
 z = 3  # E: Cannot assign to final name "z"
 
 [case testFinalReassignModuleVar2]
-# flags: --allow-redefinition
+# flags: --allow-redefinition-old
 from typing import Final
 
 x: Final = 1
@@ -389,8 +429,7 @@ y
 y: Final = 3  # E: Cannot redefine an existing name as final
 
 [case testFinalReassignModuleVar3]
-# flags: --disallow-redefinition
-# Error formatting is subtly different with new analyzer.
+# flags: --disallow-redefinition-old
 from typing import Final
 
 x: Final = 1
@@ -417,16 +456,14 @@ z: Final = 2  # E: Cannot redefine an existing name as final
 z = 3  # E: Cannot assign to final name "z"
 
 [case testFinalReassignModuleReexport]
-
-# Error formatting is subtly different with the new analyzer.
 from typing import Final
 
 from lib import X
 from lib.mod import ID
 
-X = 1  # Error!
-ID: Final = 1  # Two errors!
-ID = 1  # Error!
+X = 1  # E: Cannot assign to final name "X"
+ID: Final = 1  # E: Cannot redefine an existing name as final
+ID = 1  # E: Cannot assign to final name "ID"
 [file lib/__init__.pyi]
 from lib.const import X as X
 
@@ -436,13 +473,8 @@ from lib.const import *
 [file lib/const.pyi]
 from typing import Final
 
-ID: Final  # Error!
+ID: Final  # E: Type in Final[...] can only be omitted if there is an initializer
 X: Final[int]
-[out]
-tmp/lib/const.pyi:3: error: Type in Final[...] can only be omitted if there is an initializer
-main:8: error: Cannot assign to final name "X"
-main:9: error: Cannot redefine an existing name as final
-main:10: error: Cannot assign to final name "ID"
 
 [case testFinalReassignFuncScope]
 from typing import Final
@@ -1075,10 +1107,218 @@ class B:
 [out]
 
 [case testFinalInDeferredMethod]
-from typing_extensions import Final
+from typing import Final
 
 class A:
     def __init__(self) -> None:
         self.x = 10  # type: Final
         undefined  # type: ignore
+[builtins fixtures/tuple.pyi]
+
+[case testFinalUsedWithClassVar]
+# flags: --python-version 3.12
+from typing import Final, ClassVar
+
+class A:
+    a: Final[ClassVar[int]]  # E: Variable should not be annotated with both ClassVar and Final
+    b: ClassVar[Final[int]]  # E: Final can be only used as an outermost qualifier in a variable annotation
+    c: ClassVar[Final] = 1  # E: Final can be only used as an outermost qualifier in a variable annotation
+[out]
+
+[case testFinalUsedWithClassVarAfterPy313]
+# flags: --python-version 3.13
+from typing import Final, ClassVar
+
+class A:
+    a: Final[ClassVar[int]] = 1
+    b: ClassVar[Final[int]] = 1
+    c: ClassVar[Final] = 1
+
+[case testFinalClassWithAbstractMethod]
+from typing import final
+from abc import ABC, abstractmethod
+
+@final
+class A(ABC): # E: Final class __main__.A has abstract attributes "B"
+    @abstractmethod
+    def B(self) -> None: ...
+
+[case testFinalDefiningFuncWithAbstractMethod]
+from typing import final
+from abc import ABC, abstractmethod
+
+class A(ABC):
+    @final # E: Method B is both abstract and final
+    @abstractmethod
+    def B(self) -> None: ...
+
+[case testFinalClassVariableRedefinitionDoesNotCrash]
+# This used to crash -- see #12950
+from typing import Final
+
+class MyClass:
+    a: None
+    a: Final[int] = 1  # E: Cannot redefine an existing name as final  # E: Name "a" already defined on line 5
+
+[case testFinalOverrideAllowedForPrivate]
+from typing import Final, final
+
+class Parent:
+    __foo: Final[int] = 0
+    @final
+    def __bar(self) -> None: ...
+
+class Child(Parent):
+    __foo: Final[int] = 1
+    @final
+    def __bar(self) -> None: ...
+
+[case testFinalWithoutBool]
+from typing import Literal, final
+
+class A:
+    pass
+
+@final
+class B:
+    pass
+
+@final
+class C:
+    def __len__(self) -> Literal[1]: return 1
+
+reveal_type(A() and 42)  # N: Revealed type is "__main__.A | Literal[42]?"
+reveal_type(B() and 42)  # N: Revealed type is "Literal[42]?"
+reveal_type(C() and 42)  # N: Revealed type is "Literal[42]?"
+
+[builtins fixtures/bool.pyi]
+
+[case testFinalWithoutBoolButWithLen]
+from typing import Literal, final
+
+# Per Python data model, __len__ is called if __bool__ does not exist.
+# In a @final class, __bool__ would not exist.
+
+@final
+class A:
+    def __len__(self) -> int: ...
+
+@final
+class B:
+    def __len__(self) -> Literal[1]: return 1
+
+@final
+class C:
+    def __len__(self) -> Literal[0]: return 0
+
+reveal_type(A() and 42)  # N: Revealed type is "__main__.A | Literal[42]?"
+reveal_type(B() and 42)  # N: Revealed type is "Literal[42]?"
+reveal_type(C() and 42)  # N: Revealed type is "__main__.C"
+
+[builtins fixtures/bool.pyi]
+
+[case testCanAccessFinalClassInit]
+from typing import final
+
+@final
+class FinalClass:
+    pass
+
+def check_final_class() -> None:
+    new_instance = FinalClass()
+    new_instance.__init__()
+
+class FinalInit:
+    @final
+    def __init__(self) -> None:
+        pass
+
+def check_final_init() -> None:
+    new_instance = FinalInit()
+    new_instance.__init__()
+[builtins fixtures/tuple.pyi]
+
+[case testNarrowingOfFinalInFunctionsNotSpecial]
+from typing import Final, Union
+
+def _init() -> Union[int, None]:
+    return 0
+
+FOO: Final = _init()
+
+class Example:
+    if FOO is not None:
+        reveal_type(FOO)  # N: Revealed type is "builtins.int"
+
+        def fn(self) -> int:
+            return FOO  # E: Incompatible return value type (got "int | None", expected "int")
+
+if FOO is not None:
+    reveal_type(FOO)  # N: Revealed type is "builtins.int"
+
+    def func() -> int:
+        return FOO  # E: Incompatible return value type (got "int | None", expected "int")
+
+[case testDisjointBase]
+from typing_extensions import disjoint_base
+
+@disjoint_base
+class Disjoint1: pass
+
+@disjoint_base
+class Disjoint2: pass
+
+@disjoint_base
+class DisjointChild(Disjoint1): pass
+
+class C1: pass
+class C2(Disjoint1, C1): pass
+class C3(DisjointChild, Disjoint1): pass
+
+class C4(Disjoint1, Disjoint2):  # E: Class "C4" has incompatible disjoint bases
+    pass
+
+class C5(Disjoint2, Disjoint1):  # E: Class "C5" has incompatible disjoint bases
+    pass
+
+class C6(Disjoint2, DisjointChild):  # E: Class "C6" has incompatible disjoint bases
+    pass
+
+class C7(DisjointChild, Disjoint2):  # E: Class "C7" has incompatible disjoint bases
+    pass
+
+class C8(DisjointChild, Disjoint1, Disjoint2):  # E: Class "C8" has incompatible disjoint bases
+    pass
+
+class C9(C2, Disjoint2):  # E: Class "C9" has incompatible disjoint bases
+    pass
+
+class C10(C3, Disjoint2):  # E: Class "C10" has incompatible disjoint bases
+    pass
+
+[builtins fixtures/tuple.pyi]
+[case testDisjointBaseSlots]
+class S1:
+    __slots__ = ("a",)
+
+class S2:
+    __slots__ = ("b",)
+
+class S3:
+    __slots__ = ()
+
+class S4(S1):
+    __slots__ = ("c",)
+
+class S5(S1, S2):  # E: Class "S5" has incompatible disjoint bases
+    pass
+
+class S6(S1, S3): pass  # OK
+class S7(S3, S1): pass  # OK
+
+class S8(S4, S1): pass  # OK
+
+class S9(S2, S4):  # E: Class "S9" has incompatible disjoint bases
+    pass
+
 [builtins fixtures/tuple.pyi]

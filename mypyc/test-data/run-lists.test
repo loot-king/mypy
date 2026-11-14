@@ -51,6 +51,81 @@ print(2, a)
 1 [-1, 5]
 2 [340282366920938463463374607431768211461, -170141183460469231731687303715884105736]
 
+[case testListClear]
+from typing import List, Any
+from copysubclass import subc
+
+def test_list_clear() -> None:
+    l1 = [1, 2, 3, -4, 5]
+    l1.clear()
+    assert l1 == []
+    l1.clear()
+    assert l1 == []
+    l2: List[Any] = []
+    l2.clear()
+    assert l2 == []
+    l3 = [1, 2, 3, "abcdef"]
+    l3.clear()
+    assert l3 == []
+    # subclass testing
+    l4: subc = subc([1, 2, 3])
+    l4.clear()
+    assert l4 == []
+
+[file copysubclass.py]
+from typing import Any
+class subc(list[Any]):
+    pass
+
+[case testListCopy]
+from typing import List
+from copysubclass import subc
+
+def test_list_copy() -> None:
+    l1 = [1, 2, 3, -4, 5]
+    l2 = l1.copy()
+    assert l1.copy() == l1
+    assert l1.copy() == l2
+    assert l1 == l2
+    assert l1.copy() == l2.copy()
+    l1 = l2.copy()
+    assert l1 == l2
+    assert l1.copy() == l2
+    assert l1 == [1, 2, 3, -4, 5]
+    l2 = [1, 2, -3]
+    l1 = []
+    assert l1.copy() == []
+    assert l2.copy() != l1
+    assert l2 == l2.copy()
+    l1 = l2
+    assert l1.copy().copy() == l2.copy().copy().copy()
+    assert l1.copy() == l2.copy()
+    l1 == [1, 2, -3].copy()
+    assert l1 == l2
+    l2 = [1, 2, 3].copy()
+    assert l2 != l1
+    l1 = [1, 2, 3]
+    assert l1.copy() == l2.copy()
+    l3 = [1, 2 , 3, "abcdef"]
+    assert l3 == l3.copy()
+    l4 = ["abc", 5, 10]
+    l4 = l3.copy()
+    assert l4 == l3
+    #subclass testing
+    l5: subc = subc([1, 2, 3])
+    l6 = l5.copy()
+    assert l6 == l5
+    l6 = [1, 2, "3", 4, 5]
+    l5 = subc([1,2,"3",4,5])
+    assert l5.copy() == l6.copy()
+    l6 = l5.copy()
+    assert l5 == l6
+
+[file copysubclass.py]
+from typing import Any
+class subc(list[Any]):
+    pass
+
 [case testSieve]
 from typing import List
 
@@ -75,8 +150,88 @@ print(primes(13))
 \[0, 0, 1, 1]
 \[0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1]
 
-[case testListPrims]
-from typing import List
+[case testListPrimitives]
+from testutil import assertRaises
+
+def test_list_build() -> None:
+    # Currently LIST_BUILDING_EXPANSION_THRESHOLD equals to 10
+    # long list built by list_build_op
+    l1 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    l1.pop()
+    l1.append(100)
+    assert l1 == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100]
+    # short list built by Setmem
+    l2 = [1, 2]
+    l2.append(3)
+    l2.pop()
+    l2.pop()
+    assert l2 == [1]
+    # empty list
+    l3 = []
+    l3.append('a')
+    assert l3 == ['a']
+
+class C:
+    def __init__(self, s: str) -> None:
+        self.s = s
+
+a = [C("a"), C("b"), C("c")]
+
+def test_get_item() -> None:
+    zero = int()
+    assert a[zero].s == "a"
+    assert a[zero + 1].s == "b"
+    assert a[zero + 2].s == "c"
+    assert a[zero - 1].s == "c"
+    assert a[zero - 2].s == "b"
+    assert a[zero - 3].s == "a"
+    with assertRaises(IndexError):
+        a[zero + 3]
+    with assertRaises(IndexError):
+        a[zero - 4]
+    # TODO: Raise IndexError?
+    with assertRaises(OverflowError):
+        a[zero + 2**90]
+    with assertRaises(OverflowError):
+        a[zero - 2**90]
+
+def test_get_item_literal() -> None:
+    assert a[0].s == "a"
+    assert a[1].s == "b"
+    assert a[2].s == "c"
+    assert a[-1].s == "c"
+    assert a[-2].s == "b"
+    assert a[-3].s == "a"
+    with assertRaises(IndexError):
+        a[3]
+    with assertRaises(IndexError):
+        a[-4]
+    # TODO: Raise IndexError?
+    with assertRaises(OverflowError):
+        a[2**90]
+    with assertRaises(OverflowError):
+        a[-2**90]
+
+def test_set_item() -> None:
+    l = a.copy()
+    zero = int()
+    zero2 = int()
+    l[zero] = C("x")
+    assert l[zero2].s == "x"
+    l[zero + 2] = C("y")
+    assert l[zero2 + 2].s == "y"
+    l[zero - 1] = C("t")
+    assert l[zero2 - 1].s == "t"
+    l[zero - 3] = C("u")
+    assert l[zero2 - 3].s == "u"
+    with assertRaises(IndexError):
+        a[zero + 3] = C("z")
+    with assertRaises(IndexError):
+        a[zero - 4] = C("z")
+    with assertRaises(OverflowError):
+        a[zero + 2**90] = C("z")
+    with assertRaises(OverflowError):
+        a[zero - 2**90] = C("z")
 
 def test_append() -> None:
     l = [1, 2]
@@ -95,10 +250,44 @@ def test_pop_last() -> None:
 
 def test_pop_index() -> None:
     l = [1, 2, 10, 3]
-    l.pop(2)
+    assert l.pop(2) == 10
     assert l == [1, 2, 3]
-    l.pop(-2)
+    assert l.pop(-2) == 2
     assert l == [1, 3]
+    assert l.pop(-2) == 1
+    assert l.pop(0) == 3
+    assert l == []
+    l = [int() + 1000, int() + 1001, int() + 1002]
+    assert l.pop(0) == 1000
+    assert l.pop(-1) == 1002
+    assert l == [1001]
+
+def test_pop_many_then_append() -> None:
+    l = [str(i) for i in range(100)]
+    for i in range(99, -1, -1):
+        assert l.pop() == str(i)
+    assert l == []
+    for i in range(100):
+        l.append(str(i))
+    assert l.pop(50) == "50"
+    assert l.pop(0) == "0"
+    assert l == [str(i) for i in range(1, 100) if i != 50]
+
+def test_pop_index_errors() -> None:
+    l = [int() + 1000]
+    with assertRaises(IndexError, "pop index out of range"):
+        l.pop(1)
+    with assertRaises(IndexError, "pop index out of range"):
+        l.pop(-2)
+    l.pop()
+    with assertRaises(IndexError, "pop from empty list"):
+        l.pop()
+    with assertRaises(IndexError, "pop from empty list"):
+        l.pop(0)
+    with assertRaises(OverflowError):
+        l.pop(1 << 100)
+    with assertRaises(OverflowError):
+        l.pop(-(1 << 100))
 
 def test_count() -> None:
     l = [1, 3]
@@ -124,6 +313,7 @@ def test_insert() -> None:
         try:
             l.insert(long_int, 5)
         except Exception as e:
+            # The error message is used by CPython
             assert type(e).__name__ == 'OverflowError'
             assert str(e) == 'Python int too large to convert to C ssize_t'
         else:
@@ -174,6 +364,43 @@ def test_index() -> None:
     else:
         assert False
 
+[case testListCountEqMutatesList]
+from typing import Any
+
+from listcounthelper import X, Y
+
+def count(a: list[Any], x: Any) -> int:
+    return a.count(x)
+
+def test_count_eq_clears_list() -> None:
+    lst: list[Any] = []
+    lst.append(X(lst))
+    y = Y()
+    assert count(lst, y) == 0
+    assert lst == []
+    assert y.seen == ["X"]
+
+[file listcounthelper.py]
+from typing import Any
+
+class X:
+    def __init__(self, lst: list[Any]) -> None:
+        self.lst = lst
+
+    def __eq__(self, other: object) -> bool:
+        # Drop the list's (only) reference to self, then force the reflected
+        # comparison, which receives self as the argument
+        self.lst.clear()
+        return NotImplemented
+
+class Y:
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def __eq__(self, other: object) -> bool:
+        self.seen.append(type(other).__name__)
+        return False
+
 [case testListOfUserDefinedClass]
 class C:
     x: int
@@ -198,6 +425,9 @@ print(g())
 7
 
 [case testListOps]
+from typing import Any, cast
+from testutil import assertRaises
+
 def test_slicing() -> None:
     # Use dummy adds to avoid constant folding
     zero = int()
@@ -220,8 +450,35 @@ def test_slicing() -> None:
     assert s[long_int:] == []
     assert s[-long_int:-1] == ["f", "o", "o", "b", "a"]
 
-[case testOperatorInExpression]
+def in_place_add(l2: Any) -> list[Any]:
+    l1 = [1, 2]
+    l1 += l2
+    return l1
 
+def test_add() -> None:
+    res = [1, 2, 3, 4]
+    assert [1, 2] + [3, 4] == res
+    with assertRaises(TypeError, 'can only concatenate list (not "tuple") to list'):
+        assert [1, 2] + cast(Any, (3, 4)) == res
+    l1 = [1, 2]
+    id_l1 = id(l1)
+    l1 += [3, 4]
+    assert l1 == res
+    assert id_l1 == id(l1)
+    assert in_place_add([3, 4]) == res
+    assert in_place_add((3, 4)) == res
+    assert in_place_add({3, 4}) == res
+    assert in_place_add({3: "", 4: ""}) == res
+    assert in_place_add(range(3, 5)) == res
+
+def test_multiply() -> None:
+    l1 = [1]
+    assert l1 * 3 == [1, 1, 1]
+    assert 3 * l1 == [1, 1, 1]
+    l1 *= 3
+    assert l1 == [1, 1, 1]
+
+[case testOperatorInExpression]
 def tuple_in_int0(i: int) -> bool:
     return i in []
 
@@ -273,68 +530,458 @@ def list_not_in_str(s: "str") -> bool:
 def list_in_mixed(i: object):
     return i in [[], (), "", 0, 0.0, False, 0j, {}, set(), type]
 
+def test_in_operator_various_cases() -> None:
+    assert not tuple_in_int0(0)
+    assert not tuple_in_int1(0)
+    assert tuple_in_int1(1)
+    assert not tuple_in_int3(0)
+    assert tuple_in_int3(1)
+    assert tuple_in_int3(2)
+    assert tuple_in_int3(3)
+    assert not tuple_in_int3(4)
+
+    assert tuple_not_in_int0(0)
+    assert tuple_not_in_int1(0)
+    assert not tuple_not_in_int1(1)
+    assert tuple_not_in_int3(0)
+    assert not tuple_not_in_int3(1)
+    assert not tuple_not_in_int3(2)
+    assert not tuple_not_in_int3(3)
+    assert tuple_not_in_int3(4)
+
+    assert tuple_in_str("foo")
+    assert tuple_in_str("bar")
+    assert tuple_in_str("baz")
+    assert not tuple_in_str("apple")
+    assert not tuple_in_str("pie")
+    assert not tuple_in_str("\0")
+    assert not tuple_in_str("")
+
+    assert not list_in_int0(0)
+    assert not list_in_int1(0)
+    assert list_in_int1(1)
+    assert not list_in_int3(0)
+    assert list_in_int3(1)
+    assert list_in_int3(2)
+    assert list_in_int3(3)
+    assert not list_in_int3(4)
+
+    assert list_not_in_int0(0)
+    assert list_not_in_int1(0)
+    assert not list_not_in_int1(1)
+    assert list_not_in_int3(0)
+    assert not list_not_in_int3(1)
+    assert not list_not_in_int3(2)
+    assert not list_not_in_int3(3)
+    assert list_not_in_int3(4)
+
+    assert list_in_str("foo")
+    assert list_in_str("bar")
+    assert list_in_str("baz")
+    assert not list_in_str("apple")
+    assert not list_in_str("pie")
+    assert not list_in_str("\0")
+    assert not list_in_str("")
+
+    assert list_in_mixed(0)
+    assert list_in_mixed([])
+    assert list_in_mixed({})
+    assert list_in_mixed(())
+    assert list_in_mixed(False)
+    assert list_in_mixed(0.0)
+    assert not list_in_mixed([1])
+    assert not list_in_mixed(object)
+    assert list_in_mixed(type)
+
+[case testListBuiltFromGenerator]
+from typing import Final, Iterator
+abc: Final = "abc"
+def test_from_gen() -> None:
+    source_a = ["a", "b", "c"]
+    a = list(x + "f2" for x in source_a)
+    assert a == ["af2", "bf2", "cf2"]
+    source_b = [1, 2, 3, 4, 5]
+    b = [x * 2 for x in source_b]
+    assert b == [2, 4, 6, 8, 10]
+    source_c = [10, 20, 30]
+    c = [x + "f4" for x in (str(y) + "yy" for y in source_c)]
+    assert c == ["10yyf4", "20yyf4", "30yyf4"]
+    source_d = [True, False]
+    d = [not x for x in source_d]
+    assert d == [False, True]
+    source_e = [0, 1, 2]
+    e = list((x ** 2) for x in (y + 2 for y in source_e))
+    assert e == [4, 9, 16]
+    source_str = "abcd"
+    f = list("str:" + x for x in source_str)
+    assert f == ["str:a", "str:b", "str:c", "str:d"]
+def test_known_length() -> None:
+    # not built from generator but doesnt need its own test either
+    built = [str(x) for x in [*abc, *"def", *b"ghi", ("j", "k"), *("l", "m", "n")]]
+    assert built == ['a', 'b', 'c', 'd', 'e', 'f', '103', '104', '105', "('j', 'k')", 'l', 'm', 'n']
+
+def gen(n: int) -> Iterator[int]:
+    for i in range(n):
+        yield i
+
+def test_from_gen_unknown_length() -> None:
+    n = 4
+    assert list(x + 1 for x in range(n)) == [1, 2, 3, 4]
+    assert list(x for x in range(n) if x % 2) == [1, 3]
+    assert list(x * y for x in range(3) for y in range(2)) == [0, 0, 0, 1, 0, 2]
+    assert list(k for k in {"a": 1, "b": 2}) == ["a", "b"]
+    assert list(x for x in gen(3)) == [0, 1, 2]
+    assert list(x for x in iter([5, 6])) == [5, 6]
+    empty: list[int] = []
+    assert list(x for x in empty) == []
+
+[case testListBuiltFromModifiedList]
+import asyncio
+from typing import List
+
+from testutil import assertRaises
+
+def grow(a: List[str], x: str) -> str:
+    if len(a) < 6:
+        a.append(x + "!")
+    return x
+
+def shrink(a: List[str], x: str) -> str:
+    a.pop()
+    return x
+
+def clear(a: List[str], x: str) -> str:
+    a.clear()
+    return x
+
+def replace(a: List[str], x: str) -> str:
+    if x == "a":
+        a.clear()
+        a.extend(["p", "q", "r", "s", "t"])
+    return x
+
+def fail(a: List[str], x: str) -> str:
+    if len(a) > 3:
+        raise ValueError(x)
+    a.append(x)
+    return x
+
+GROWN = ["a", "b", "a!", "b!", "a!!", "b!!"]
+
+def test_list_comprehension() -> None:
+    a = ["a", "b"]
+    assert [grow(a, x) for x in a] == GROWN
+    a = ["a", "b", "c", "d"]
+    assert [shrink(a, x) for x in a] == ["a", "b"]
+    a = ["a", "b", "c", "d"]
+    assert [clear(a, x) for x in a] == ["a"]
+    a = ["a", "b"]
+    assert [replace(a, x) for x in a] == ["a", "q", "r", "s", "t"]
+    a = ["a", "b"]
+    assert [x + "?" for x in a] == ["a?", "b?"]
+    a = ["a", "b"]
+    with assertRaises(ValueError, "a"):
+        [fail(a, x) for x in a]
+
+def test_list_from_generator() -> None:
+    a = ["a", "b"]
+    assert list(grow(a, x) for x in a) == GROWN
+    a = ["a", "b", "c", "d"]
+    assert list(shrink(a, x) for x in a) == ["a", "b"]
+    a = ["a", "b"]
+    assert list(x + "?" for x in a) == ["a?", "b?"]
+
+def test_tuple_from_generator() -> None:
+    a = ["a", "b"]
+    assert tuple(grow(a, x) for x in a) == tuple(GROWN)
+    a = ["a", "b", "c", "d"]
+    assert tuple(shrink(a, x) for x in a) == ("a", "b")
+    a = ["a", "b"]
+    assert tuple(x + "?" for x in a) == ("a?", "b?")
+    a = ["a", "b", "c", "d"]
+    assert tuple(clear(a, x) for x in a) == ("a",)
+    a = ["a", "b"]
+    assert tuple(replace(a, x) for x in a) == ("a", "q", "r", "s", "t")
+    a = ["a", "b"]
+    with assertRaises(ValueError, "a"):
+        tuple(fail(a, x) for x in a)
+
+def grow_many(a: List[int], x: int) -> int:
+    if len(a) < 1000:
+        a.append(x + 1)
+    return x * 2
+
+def grow_many_reference(a: List[int]) -> List[int]:
+    result = []
+    i = 0
+    while i < len(a):
+        result.append(grow_many(a, a[i]))
+        i += 1
+    return result
+
+def test_tuple_from_generator_grow_many() -> None:
+    # The tuple is resized several times
+    for n in range(5):
+        expected = tuple(grow_many_reference(list(range(n))))
+        assert len(expected) == (1000 if n else 0)
+        a = list(range(n))
+        assert tuple(grow_many(a, x) for x in a) == expected, n
+
+def test_sorted_from_generator() -> None:
+    a = ["b", "a"]
+    assert sorted(grow(a, x) for x in a) == ["a", "a!", "a!!", "b", "b!", "b!!"]
+    a = ["d", "c", "b", "a"]
+    assert sorted(shrink(a, x) for x in a) == ["c", "d"]
+    a = ["b", "a"]
+    assert sorted(x + "?" for x in a) == ["a?", "b?"]
+
+def test_join_from_generator() -> None:
+    a = ["a", "b"]
+    assert ",".join(grow(a, x) for x in a) == "a,b,a!,b!,a!!,b!!"
+    a = ["a", "b", "c", "d"]
+    assert ",".join(shrink(a, x) for x in a) == "a,b"
+    a = ["a", "b"]
+    assert ",".join(x + "?" for x in a) == "a?,b?"
+
+async def async_grow(a: List[str], x: str) -> str:
+    await asyncio.sleep(0)
+    return grow(a, x)
+
+async def async_shrink(a: List[str], x: str) -> str:
+    await asyncio.sleep(0)
+    return shrink(a, x)
+
+async def async_grow_comprehension(a: List[str]) -> List[str]:
+    return [await async_grow(a, x) for x in a]
+
+async def async_shrink_comprehension(a: List[str]) -> List[str]:
+    return [await async_shrink(a, x) for x in a]
+
+def test_async_comprehension() -> None:
+    assert asyncio.run(async_grow_comprehension(["a", "b"])) == GROWN
+    assert asyncio.run(async_shrink_comprehension(["a", "b", "c", "d"])) == ["a", "b"]
+
+[file asyncio/__init__.pyi]
+from typing import Any, Awaitable, TypeVar
+T = TypeVar("T")
+async def sleep(t: float) -> None: ...
+def run(x: Awaitable[T]) -> T: ...
+
+[typing fixtures/typing-full.pyi]
+
+[case testNext]
+from typing import List
+
+def get_next(x: List[int]) -> int:
+    return next((i for i in x), -1)
+
+def test_next() -> None:
+    assert get_next([]) == -1
+    assert get_next([1]) == 1
+    assert get_next([3,2,1]) == 3
+
+[case testListGetItemWithBorrow]
+from typing import List
+
+class D:
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+class C:
+    def __init__(self, d: D) -> None:
+        self.d = d
+
+def test_index_with_literal() -> None:
+    d1 = D(1)
+    d2 = D(2)
+    a = [C(d1), C(d2)]
+    d = a[0].d
+    assert d is d1
+    d = a[1].d
+    assert d is d2
+    d = a[-1].d
+    assert d is d2
+    d = a[-2].d
+    assert d is d1
+
+[case testSorted]
+from typing import List
+
+def test_list_sort() -> None:
+    l1 = [2, 1, 3]
+    id_l1 = id(l1)
+    l1.sort()
+    assert l1 == [1, 2, 3]
+    assert id_l1 == id(l1)
+
+def test_sorted() -> None:
+    res = [1, 2, 3]
+    l1 = [2, 1, 3]
+    id_l1 = id(l1)
+    s_l1 = sorted(l1)
+    assert s_l1 == res
+    assert id_l1 != id(s_l1)
+    assert l1 == [2, 1, 3]
+    assert sorted((2, 1, 3)) == res
+    assert sorted({2, 1, 3}) == res
+    assert sorted({2: "", 1: "", 3: ""}) == res
+
+[case testIsInstance]
+from copysubclass import subc
+def test_built_in() -> None:
+    assert isinstance([], list)
+    assert isinstance([1,2,3], list)
+    assert isinstance(['a','b'], list)
+    assert isinstance(subc(), list)
+    assert isinstance(subc([1,2,3]), list)
+    assert isinstance(subc(['a','b']), list)
+
+    assert not isinstance({}, list)
+    assert not isinstance((), list)
+    assert not isinstance((1,2,3), list)
+    assert not isinstance(('a','b'), list)
+    assert not isinstance(1, list)
+    assert not isinstance('a', list)
+
+def test_user_defined() -> None:
+    from userdefinedlist import list
+
+    assert isinstance(list(), list)
+    assert not isinstance([list()], list)
+
+[file copysubclass.py]
+from typing import Any
+class subc(list[Any]):
+    pass
+
+[file userdefinedlist.py]
+class list:
+    pass
+
+[case testListSetErrorOwnership]
+from typing import Any, List
+def assign(items: List[Any], index: int, value: Any) -> None:
+    items[index] = value
+
 [file driver.py]
+import gc
+import weakref
+from native import assign
+from testutil import assertRaises
 
-from native import *
+class Sentinel:
+    pass
 
-assert not tuple_in_int0(0)
-assert not tuple_in_int1(0)
-assert tuple_in_int1(1)
-assert not tuple_in_int3(0)
-assert tuple_in_int3(1)
-assert tuple_in_int3(2)
-assert tuple_in_int3(3)
-assert not tuple_in_int3(4)
+for index in (1, -2, 2**100, -2**100):
+    value = Sentinel()
+    ref = weakref.ref(value)
+    try:
+        assign([None], index, value)
+    except (IndexError, OverflowError):
+        pass
+    else:
+        assert False, index
+    del value
+    gc.collect()
+    assert ref() is None, index
+with assertRaises(IndexError):
+    assign([], 0, None)
+items = [None]
+value = Sentinel()
+assign(items, -1, value)
+assert items[0] is value
+assign(items, 0, None)
+assert items == [None]
 
-assert tuple_not_in_int0(0)
-assert tuple_not_in_int1(0)
-assert not tuple_not_in_int1(1)
-assert tuple_not_in_int3(0)
-assert not tuple_not_in_int3(1)
-assert not tuple_not_in_int3(2)
-assert not tuple_not_in_int3(3)
-assert tuple_not_in_int3(4)
+# Replacing an element may run Python code that mutates the same list.
+class Reentrant:
+    def __del__(self):
+        items.clear()
 
-assert tuple_in_str("foo")
-assert tuple_in_str("bar")
-assert tuple_in_str("baz")
-assert not tuple_in_str("apple")
-assert not tuple_in_str("pie")
-assert not tuple_in_str("\0")
-assert not tuple_in_str("")
+for index in (0, -1):
+    items = [Reentrant()]
+    assign(items, index, None)
+    assert items == []
 
-assert not list_in_int0(0)
-assert not list_in_int1(0)
-assert list_in_int1(1)
-assert not list_in_int3(0)
-assert list_in_int3(1)
-assert list_in_int3(2)
-assert list_in_int3(3)
-assert not list_in_int3(4)
+[case testListOpsOverridingSubclass]
+from typing import List
+from testutil import assertRaises
+from listsub import BadList, GoodList
 
-assert list_not_in_int0(0)
-assert list_not_in_int1(0)
-assert not list_not_in_int1(1)
-assert list_not_in_int3(0)
-assert not list_not_in_int3(1)
-assert not list_not_in_int3(2)
-assert not list_not_in_int3(3)
-assert list_not_in_int3(4)
+def add(a: List[int], b: List[int]) -> List[int]:
+    return a + b
 
-assert list_in_str("foo")
-assert list_in_str("bar")
-assert list_in_str("baz")
-assert not list_in_str("apple")
-assert not list_in_str("pie")
-assert not list_in_str("\0")
-assert not list_in_str("")
+def iadd(a: List[int], b: List[int]) -> List[int]:
+    a += b
+    return a
 
-assert list_in_mixed(0)
-assert list_in_mixed([])
-assert list_in_mixed({})
-assert list_in_mixed(())
-assert list_in_mixed(False)
-assert list_in_mixed(0.0)
-assert not list_in_mixed([1])
-assert not list_in_mixed(object)
-assert list_in_mixed(type)
+def mul(a: List[int], n: int) -> List[int]:
+    return a * n
+
+def rmul(a: List[int], n: int) -> List[int]:
+    return n * a
+
+def imul(a: List[int], n: int) -> List[int]:
+    a *= n
+    return a
+
+def copy(a: List[int]) -> List[int]:
+    return a.copy()
+
+def test_bad_result_type() -> None:
+    a: List[int] = BadList([1])
+    with assertRaises(TypeError, "list object expected; got int"):
+        add(a, [2])
+    with assertRaises(TypeError, "list object expected; got int"):
+        iadd(a, [2])
+    with assertRaises(TypeError, "list object expected; got int"):
+        mul(a, 2)
+    with assertRaises(TypeError, "list object expected; got int"):
+        rmul(a, 2)
+    with assertRaises(TypeError, "list object expected; got int"):
+        imul(a, 2)
+    with assertRaises(TypeError, "list object expected; got int"):
+        copy(a)
+
+def test_overrides_called() -> None:
+    a: List[int] = GoodList([1])
+    assert add(a, [2]) == [1, 2, 0]
+    assert iadd(a, [2]) == [1, 2, 1]
+    assert mul(a, 2) == [1, 1, 2]
+    assert rmul(a, 2) == [1, 1, 3]
+    assert imul(a, 2) == [1, 1, 4]
+    assert copy(a) == [1, 5]
+    assert type(copy(a)) is GoodList
+    assert a == [1]
+    assert rmul([1], 2) == [1, 1]
+
+[file listsub.py]
+from typing import Any
+
+class BadList(list):
+    def __add__(self, other: Any) -> Any:
+        return 1
+    def __iadd__(self, other: Any) -> Any:
+        return 2
+    def __mul__(self, n: Any) -> Any:
+        return 3
+    def __rmul__(self, n: Any) -> Any:
+        return 4
+    def __imul__(self, n: Any) -> Any:
+        return 5
+    def copy(self) -> Any:
+        return 6
+
+class GoodList(list):
+    def __add__(self, other: Any) -> Any:
+        return GoodList(list(self) + other + [0])
+    def __iadd__(self, other: Any) -> Any:
+        return GoodList(list(self) + other + [1])
+    def __mul__(self, n: Any) -> Any:
+        return GoodList(list(self) * n + [2])
+    def __rmul__(self, n: Any) -> Any:
+        return GoodList(list(self) * n + [3])
+    def __imul__(self, n: Any) -> Any:
+        return GoodList(list(self) * n + [4])
+    def copy(self) -> Any:
+        return GoodList(list(self) + [5])

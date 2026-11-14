@@ -1,95 +1,136 @@
 import sys
 import types
-from socket import SocketType
-from typing import Any, BinaryIO, Callable, ClassVar, List, Optional, Tuple, Type, TypeVar, Union
+from _socket import _Address, _RetAddress
+from _typeshed import ReadableBuffer
+from collections.abc import Callable
+from io import BufferedIOBase
+from socket import socket as _socket
+from typing import Any, ClassVar, TypeAlias
+from typing_extensions import Self
 
-_T = TypeVar("_T")
+__all__ = [
+    "BaseServer",
+    "TCPServer",
+    "UDPServer",
+    "ThreadingUDPServer",
+    "ThreadingTCPServer",
+    "BaseRequestHandler",
+    "StreamRequestHandler",
+    "DatagramRequestHandler",
+    "ThreadingMixIn",
+]
+if sys.platform != "win32":
+    __all__ += [
+        "ForkingMixIn",
+        "ForkingTCPServer",
+        "ForkingUDPServer",
+        "ThreadingUnixDatagramServer",
+        "ThreadingUnixStreamServer",
+        "UnixDatagramServer",
+        "UnixStreamServer",
+    ]
+    if sys.version_info >= (3, 12):
+        __all__ += ["ForkingUnixStreamServer", "ForkingUnixDatagramServer"]
 
+_RequestType: TypeAlias = _socket | tuple[bytes, _socket]
+_AfUnixAddress: TypeAlias = str | ReadableBuffer  # address acceptable for an AF_UNIX socket
+_AfInetAddress: TypeAlias = tuple[str | bytes | bytearray, int]  # address acceptable for an AF_INET socket
+_AfInet6Address: TypeAlias = tuple[str | bytes | bytearray, int, int, int]  # address acceptable for an AF_INET6 socket
+
+# This can possibly be generic at some point:
 class BaseServer:
+    server_address: _Address
+    timeout: float | None
+    RequestHandlerClass: Callable[[Any, _RetAddress, Self], BaseRequestHandler]
+    def __init__(
+        self, server_address: _Address, RequestHandlerClass: Callable[[Any, _RetAddress, Self], BaseRequestHandler]
+    ) -> None: ...
+    def handle_request(self) -> None: ...
+    def serve_forever(self, poll_interval: float = 0.5) -> None: ...
+    def shutdown(self) -> None: ...
+    def server_close(self) -> None: ...
+    def finish_request(self, request: _RequestType, client_address: _RetAddress) -> None: ...
+    def get_request(self) -> tuple[Any, Any]: ...  # Not implemented here, but expected to exist on subclasses
+    def handle_error(self, request: _RequestType, client_address: _RetAddress) -> None: ...
+    def handle_timeout(self) -> None: ...
+    def process_request(self, request: _RequestType, client_address: _RetAddress) -> None: ...
+    def server_activate(self) -> None: ...
+    def verify_request(self, request: _RequestType, client_address: _RetAddress) -> bool: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: types.TracebackType | None
+    ) -> None: ...
+    def service_actions(self) -> None: ...
+    def shutdown_request(self, request: _RequestType) -> None: ...  # undocumented
+    def close_request(self, request: _RequestType) -> None: ...  # undocumented
+
+class TCPServer(BaseServer):
     address_family: int
-    RequestHandlerClass: Callable[..., BaseRequestHandler]
-    server_address: Tuple[str, int]
-    socket: SocketType
+    socket: _socket
     allow_reuse_address: bool
     request_queue_size: int
     socket_type: int
-    timeout: Optional[float]
-    def __init__(self, server_address: Any, RequestHandlerClass: Callable[..., BaseRequestHandler]) -> None: ...
+    if sys.version_info >= (3, 11):
+        allow_reuse_port: bool
+    server_address: _AfInetAddress | _AfInet6Address
+    def __init__(
+        self,
+        server_address: _AfInetAddress | _AfInet6Address,
+        RequestHandlerClass: Callable[[Any, _RetAddress, Self], BaseRequestHandler],
+        bind_and_activate: bool = True,
+    ) -> None: ...
     def fileno(self) -> int: ...
-    def handle_request(self) -> None: ...
-    def serve_forever(self, poll_interval: float = ...) -> None: ...
-    def shutdown(self) -> None: ...
-    def server_close(self) -> None: ...
-    def finish_request(self, request: bytes, client_address: Tuple[str, int]) -> None: ...
-    def get_request(self) -> Tuple[SocketType, Tuple[str, int]]: ...
-    def handle_error(self, request: bytes, client_address: Tuple[str, int]) -> None: ...
-    def handle_timeout(self) -> None: ...
-    def process_request(self, request: bytes, client_address: Tuple[str, int]) -> None: ...
-    def server_activate(self) -> None: ...
+    def get_request(self) -> tuple[_socket, _RetAddress]: ...
     def server_bind(self) -> None: ...
-    def verify_request(self, request: bytes, client_address: Tuple[str, int]) -> bool: ...
-    def __enter__(self: _T) -> _T: ...
-    def __exit__(
-        self, exc_type: Optional[Type[BaseException]], exc_val: Optional[BaseException], exc_tb: Optional[types.TracebackType]
-    ) -> None: ...
-    def service_actions(self) -> None: ...
 
-class TCPServer(BaseServer):
-    def __init__(
-        self,
-        server_address: Tuple[str, int],
-        RequestHandlerClass: Callable[..., BaseRequestHandler],
-        bind_and_activate: bool = ...,
-    ) -> None: ...
-
-class UDPServer(BaseServer):
-    def __init__(
-        self,
-        server_address: Tuple[str, int],
-        RequestHandlerClass: Callable[..., BaseRequestHandler],
-        bind_and_activate: bool = ...,
-    ) -> None: ...
+class UDPServer(TCPServer):
+    max_packet_size: ClassVar[int]
+    def get_request(self) -> tuple[tuple[bytes, _socket], _RetAddress]: ...  # type: ignore[override]
 
 if sys.platform != "win32":
-    class UnixStreamServer(BaseServer):
+    class UnixStreamServer(TCPServer):
+        server_address: _AfUnixAddress  # type: ignore[assignment]
         def __init__(
             self,
-            server_address: Union[str, bytes],
-            RequestHandlerClass: Callable[..., BaseRequestHandler],
-            bind_and_activate: bool = ...,
+            server_address: _AfUnixAddress,
+            RequestHandlerClass: Callable[[Any, _RetAddress, Self], BaseRequestHandler],
+            bind_and_activate: bool = True,
         ) -> None: ...
-    class UnixDatagramServer(BaseServer):
+
+    class UnixDatagramServer(UDPServer):
+        server_address: _AfUnixAddress  # type: ignore[assignment]
         def __init__(
             self,
-            server_address: Union[str, bytes],
-            RequestHandlerClass: Callable[..., BaseRequestHandler],
-            bind_and_activate: bool = ...,
+            server_address: _AfUnixAddress,
+            RequestHandlerClass: Callable[[Any, _RetAddress, Self], BaseRequestHandler],
+            bind_and_activate: bool = True,
         ) -> None: ...
 
 if sys.platform != "win32":
     class ForkingMixIn:
-        timeout: Optional[float]  # undocumented
-        active_children: Optional[List[int]]  # undocumented
+        timeout: float | None  # undocumented
+        active_children: set[int] | None  # undocumented
         max_children: int  # undocumented
-        if sys.version_info >= (3, 7):
-            block_on_close: bool
-        def collect_children(self, *, blocking: bool = ...) -> None: ...  # undocumented
+        block_on_close: bool
+        def collect_children(self, *, blocking: bool = False) -> None: ...  # undocumented
         def handle_timeout(self) -> None: ...  # undocumented
         def service_actions(self) -> None: ...  # undocumented
-        def process_request(self, request: bytes, client_address: Tuple[str, int]) -> None: ...
+        def process_request(self, request: _RequestType, client_address: _RetAddress) -> None: ...
         def server_close(self) -> None: ...
 
 class ThreadingMixIn:
     daemon_threads: bool
-    if sys.version_info >= (3, 7):
-        block_on_close: bool
-    def process_request_thread(self, request: bytes, client_address: Tuple[str, int]) -> None: ...  # undocumented
-    def process_request(self, request: bytes, client_address: Tuple[str, int]) -> None: ...
+    block_on_close: bool
+    def process_request_thread(self, request: _RequestType, client_address: _RetAddress) -> None: ...  # undocumented
+    def process_request(self, request: _RequestType, client_address: _RetAddress) -> None: ...
     def server_close(self) -> None: ...
 
 if sys.platform != "win32":
     class ForkingTCPServer(ForkingMixIn, TCPServer): ...
     class ForkingUDPServer(ForkingMixIn, UDPServer): ...
+    if sys.version_info >= (3, 12):
+        class ForkingUnixStreamServer(ForkingMixIn, UnixStreamServer): ...
+        class ForkingUnixDatagramServer(ForkingMixIn, UnixDatagramServer): ...
 
 class ThreadingTCPServer(ThreadingMixIn, TCPServer): ...
 class ThreadingUDPServer(ThreadingMixIn, UDPServer): ...
@@ -99,31 +140,31 @@ if sys.platform != "win32":
     class ThreadingUnixDatagramServer(ThreadingMixIn, UnixDatagramServer): ...
 
 class BaseRequestHandler:
-    # Those are technically of types, respectively:
-    # * Union[SocketType, Tuple[bytes, SocketType]]
-    # * Union[Tuple[str, int], str]
-    # But there are some concerns that having unions here would cause
+    # `request` is technically of type _RequestType,
+    # but there are some concerns that having a union here would cause
     # too much inconvenience to people using it (see
     # https://github.com/python/typeshed/pull/384#issuecomment-234649696)
+    #
+    # Note also that _RetAddress is also just an alias for `Any`
     request: Any
-    client_address: Any
+    client_address: _RetAddress
     server: BaseServer
-    def __init__(self, request: Any, client_address: Any, server: BaseServer) -> None: ...
+    def __init__(self, request: _RequestType, client_address: _RetAddress, server: BaseServer) -> None: ...
     def setup(self) -> None: ...
     def handle(self) -> None: ...
     def finish(self) -> None: ...
 
 class StreamRequestHandler(BaseRequestHandler):
-    rbufsize: ClassVar[int]  # Undocumented
-    wbufsize: ClassVar[int]  # Undocumented
-    timeout: ClassVar[Optional[float]]  # Undocumented
-    disable_nagle_algorithm: ClassVar[bool]  # Undocumented
-    connection: SocketType  # Undocumented
-    rfile: BinaryIO
-    wfile: BinaryIO
+    rbufsize: ClassVar[int]  # undocumented
+    wbufsize: ClassVar[int]  # undocumented
+    timeout: ClassVar[float | None]  # undocumented
+    disable_nagle_algorithm: ClassVar[bool]  # undocumented
+    connection: Any  # undocumented
+    rfile: BufferedIOBase
+    wfile: BufferedIOBase
 
 class DatagramRequestHandler(BaseRequestHandler):
-    packet: SocketType  # Undocumented
-    socket: SocketType  # Undocumented
-    rfile: BinaryIO
-    wfile: BinaryIO
+    packet: bytes  # undocumented
+    socket: _socket  # undocumented
+    rfile: BufferedIOBase
+    wfile: BufferedIOBase

@@ -107,7 +107,7 @@ performance.
 integer values. A side effect of this is that the exact runtime type of
 ``int`` values is lost. For example, consider this simple function::
 
-    def first_int(x: List[int]) -> int:
+    def first_int(x: list[int]) -> int:
         return x[0]
 
     print(first_int([True]))  # Output is 1, instead of True!
@@ -171,6 +171,43 @@ Examples of early and late binding::
         var = x  # Module-level variable
         lib.func()  # Accessing library that is not compiled
 
+Pickling and copying objects
+----------------------------
+
+Mypyc tries to enforce that instances native classes are properly
+initialized by calling ``__init__`` implicitly when constructing
+objects, even if objects are constructed through ``pickle``,
+``copy.copy`` or ``copy.deepcopy``, for example.
+
+If a native class doesn't support calling ``__init__`` without arguments,
+you can't pickle or copy instances of the class. Use the
+``mypy_extensions.mypyc_attr`` class decorator to override this behavior
+and enable pickling through the ``serializable`` flag::
+
+    from mypy_extensions import mypyc_attr
+    import pickle
+
+    @mypyc_attr(serializable=True)
+    class Cls:
+        def __init__(self, n: int) -> None:
+            self.n = n
+
+    data = pickle.dumps(Cls(5))
+    obj = pickle.loads(data)  # OK
+
+Additional notes:
+
+* All subclasses inherit the ``serializable`` flag.
+* If a class has the ``allow_interpreted_subclasses`` attribute, it
+  implicitly supports serialization.
+* Enabling serialization may slow down attribute access, since compiled
+  code has to be always prepared to raise ``AttributeError`` in case an
+  attribute is not defined at runtime.
+* If you try to pickle an object without setting the ``serializable``
+  flag, you'll get a ``TypeError`` about missing arguments to
+  ``__init__``.
+
+
 Monkey patching
 ---------------
 
@@ -200,28 +237,87 @@ nested function calls, typically due to out-of-control recursion.
 Final values
 ------------
 
-Compiled code replaces a reference to an attribute declared ``Final`` with
-the value of the attribute computed at compile time. This is an example of
-:ref:`early binding <early-binding>`. Example::
+Mypy treats variables and attributes defined as ``Final`` specially.
+For instance attributes of native classes, mypyc prevents reassignment
+of these attributes.
+
+Mypyc replaces references to a variable or attribute declared ``Final``
+with the value of the attribute computed at compile time, when it can
+be determined during compilation. Example::
 
     MAX: Final = 100
 
     def limit_to_max(x: int) -> int:
-         if x > MAX:
-             return MAX
-         return x
+        if x > MAX:
+            return MAX
+        return x
 
 The two references to ``MAX`` don't involve any module namespace lookups,
 and are equivalent to this code::
 
     def limit_to_max(x: int) -> int:
-         if x > 100:
-             return 100
-         return x
+        if x > 100:
+            return 100
+        return x
 
 When run as interpreted, the first example will execute slower due to
-the extra namespace lookups. In interpreted code final attributes can
-also be modified.
+the extra namespace lookups.
+
+For a final class attribute or global variable whose value can't be
+determined during compilation, mypyc defines a hidden native variable
+that stores the value when the initialization assignment is evaluated.
+Redefining the attribute using ``setattr`` or direct namespace access
+has no effect for mypyc-compiled code (in the same compilation unit).
+
+Final global variables and class attributes are faster to read in
+compiled code, since they don't have to be looked up from a namespace
+dictionary. Thus using a ``Final`` object that holds mutable state in an
+attribute tends to be faster than a plain global variable in compiled code::
+
+    class Counter:
+        def __init__(self) -> None:
+            self.value = 0
+
+    x: Final = Counter()
+    y = 0
+
+    def inc() -> None:
+        # Faster: no Python namespace lookup
+        x.value += 1
+        # Slower: access through globals() namespace dictionary
+        global y
+        y += 1
+
+.. _free-threading:
+
+Free threading
+--------------
+
+Mypyc supports free threading. However, optimized primitive operations in
+compiled code may have different atomicity properties compared to CPython.
+Use explicit synchronization if code depends on operations being atomic and
+race conditions are possible. This is already the recommended approach for
+normal Python code. You can often use :ref:`librt.threading.Lock <librt-threading-lock>`
+(or :py:class:`threading.Lock`, which is less efficient than
+``librt.threading.Lock``) to fix data races.
+
+Since mypyc 2.3, the vast majority of operations are memory safe even if
+there are race conditions (unlike earlier mypyc releases). This includes
+list operations and access to native instance attributes (except for
+a few less common use cases that will be fixed in future releases).
+
+.. note::
+
+    Operations that aren't safe under race conditions in interpreted CPython
+    are not expected to be memory safe in compiled code either.
+    Some :ref:`librt <librt>` features are heavily optimized for performance and
+    don't guarantee memory safety when there are race conditions
+    (notably the :ref:`vec <librt-vecs>` type).
+
+It's always safe to perform read-only operations concurrently. Using
+objects with final attributes and tuple objects can help prevent
+race conditions without introducing extra overhead from explicit
+synchronization operations.
 
 Unsupported features
 --------------------
@@ -231,19 +327,24 @@ used in compiled code, or there are some limitations. You can
 partially work around some of these limitations by running your code
 in interpreted mode.
 
-Operator overloading
-********************
+Nested classes
+**************
 
-Native classes can only use these dunder methods to override operators:
+Nested classes are not supported.
 
-* ``__eq__``
-* ``__ne__``
-* ``__getitem__``
-* ``__setitem__``
+Conditional functions or classes
+********************************
 
-.. note::
+Function and class definitions guarded by an if-statement are not supported.
 
-    This limitation will be lifted in the future.
+Dunder methods
+**************
+
+Native classes **cannot** use these dunders. If defined, they will not
+work as expected.
+
+* ``__getattribute__``
+* ``__delattr__``
 
 Generator expressions
 *********************
@@ -262,10 +363,17 @@ Descriptors
 Native classes can't contain arbitrary descriptors. Properties, static
 methods and class methods are supported.
 
-Stack introspection
-*******************
+Introspection
+*************
 
-Frames of compiled functions can't be inspected using ``inspect``.
+Various methods of introspection may break by using mypyc. Here's an
+non-exhaustive list of what won't work:
+
+- Instance ``__annotations__`` is usually not kept
+- Frames of compiled functions can't be inspected using ``inspect``
+- Compiled methods aren't considered methods by ``inspect.ismethod``
+- ``inspect.signature`` chokes on compiled functions with default arguments that
+  are not simple literals
 
 Profiling hooks and tracing
 ***************************

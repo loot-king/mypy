@@ -1,10 +1,16 @@
-import sys
-from typing import Sequence, Text
+from collections.abc import Sequence
+from typing import Final
 
-def iskeyword(s: Text) -> bool: ...
+__all__ = ["iskeyword", "issoftkeyword", "kwlist", "softkwlist"]
 
-kwlist: Sequence[str]
+def iskeyword(s: str, /) -> bool: ...
 
-if sys.version_info >= (3, 9):
-    def issoftkeyword(s: str) -> bool: ...
-    softkwlist: Sequence[str]
+# a list at runtime, but you're not meant to mutate it;
+# type it as a sequence
+kwlist: Final[Sequence[str]]
+
+def issoftkeyword(s: str, /) -> bool: ...
+
+# a list at runtime, but you're not meant to mutate it;
+# type it as a sequence
+softkwlist: Final[Sequence[str]]

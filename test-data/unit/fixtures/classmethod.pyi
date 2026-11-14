@@ -1,3 +1,4 @@
+import types
 import typing
 
 _T = typing.TypeVar('_T')
@@ -23,6 +24,8 @@ class float: pass
 class str: pass
 class bytes: pass
 class bool: pass
-class ellipsis: pass
 
 class tuple(typing.Generic[_T]): pass
+
+class list: pass
+class dict: pass

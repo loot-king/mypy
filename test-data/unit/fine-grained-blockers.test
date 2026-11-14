@@ -19,7 +19,7 @@ def f(x: int) -> None: pass
 def f() -> None: pass
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Expected an expression
 ==
 main:2: error: Missing positional argument "x" in call to "f"
 ==
@@ -38,13 +38,13 @@ def f(x: int) -> None: pass
 def f() -> None: pass
 [out]
 ==
-a.py:1: error: invalid syntax  [syntax]
+a.py:1: error: Expected an expression  [syntax]
     def f(x: int) ->
                     ^
 ==
 main:3: error: Missing positional argument "x" in call to "f"  [call-arg]
     a.f()
-    ^
+    ^~~~~
 ==
 
 [case testParseErrorMultipleTimes]
@@ -61,9 +61,9 @@ def f(x: int
 def f(x: int) -> None: pass
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Expected an expression
 ==
-a.py:2: error: invalid syntax
+a.py:2: error: Expected `:`, found newline
 ==
 main:2: error: Missing positional argument "x" in call to "f"
 
@@ -79,7 +79,7 @@ break
 def f(x: int) -> None: pass
 [out]
 ==
-a.py:2: error: 'break' outside loop
+a.py:2: error: "break" outside loop
 ==
 main:2: error: Missing positional argument "x" in call to "f"
 
@@ -101,7 +101,7 @@ def f() -> None: pass
 main:3: error: Too many arguments for "f"
 main:5: error: Too many arguments for "f"
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Expected `:`, found newline
 ==
 main:3: error: Too many arguments for "f"
 main:5: error: Too many arguments for "f"
@@ -122,7 +122,12 @@ class C:
     def f(self, x: int) -> None: pass
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+main:5: error: Missing positional argument "x" in call to "f" of "C"
+[out version==3.10.0]
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 main:5: error: Missing positional argument "x" in call to "f" of "C"
 
@@ -137,7 +142,14 @@ def f() -> None: pass
 main:1: error: Cannot find implementation or library stub for module named "a"
 main:1: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+main:2: error: Too many arguments for "f"
+[out version==3.10.0]
+main:1: error: Cannot find implementation or library stub for module named "a"
+main:1: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 main:2: error: Too many arguments for "f"
 
@@ -165,7 +177,7 @@ a.f()
 def g() -> None: pass
 [out]
 ==
-b.py:1: error: invalid syntax
+b.py:1: error: Expected `,`, found name
 ==
 
 [case testModifyTwoFilesOneWithBlockingError2]
@@ -192,7 +204,7 @@ def f() -> None: pass
 b.g()
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Expected `,`, found name
 ==
 
 [case testBlockingErrorRemainsUnfixed]
@@ -211,9 +223,16 @@ import b
 b.f()
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+a.py:2: error: Missing positional argument "x" in call to "f"
+[out version==3.10.0]
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 a.py:2: error: Missing positional argument "x" in call to "f"
 
@@ -253,12 +272,12 @@ def g() -> None: pass
 a.f(1)
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Expected `,`, found name
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Expected `,`, found name
 ==
-b.py:3: error: Too many arguments for "f"
 a.py:3: error: Too many arguments for "g"
+b.py:3: error: Too many arguments for "f"
 
 [case testDeleteFileWithBlockingError-only_when_nocache]
 -- Different cache/no-cache tests because:
@@ -275,13 +294,20 @@ x x
 [delete a.py.3]
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+main:1: error: Cannot find implementation or library stub for module named "a"
+main:1: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+b.py:1: error: Cannot find implementation or library stub for module named "a"
+[out version==3.10.0]
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 main:1: error: Cannot find implementation or library stub for module named "a"
 main:1: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
 b.py:1: error: Cannot find implementation or library stub for module named "a"
 
-[case testDeleteFileWithBlockingError-only_when_cache]
+[case testDeleteFileWithBlockingError2-only_when_cache]
 -- Different cache/no-cache tests because:
 -- Error message ordering differs
 import a
@@ -296,7 +322,14 @@ x x
 [delete a.py.3]
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+b.py:1: error: Cannot find implementation or library stub for module named "a"
+b.py:1: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+main:1: error: Cannot find implementation or library stub for module named "a"
+[out version==3.10.0]
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 b.py:1: error: Cannot find implementation or library stub for module named "a"
 b.py:1: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
@@ -318,9 +351,17 @@ a.f()
 [builtins fixtures/module.pyi]
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+b.py:2: error: Module has no attribute "f"
+b.py:3: error: "int" not callable
+[out version==3.10.0]
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 b.py:2: error: Module has no attribute "f"
 b.py:3: error: "int" not callable
@@ -336,7 +377,12 @@ import blocker
 def f() -> None: pass
 [out]
 ==
-<ROOT>/test-data/unit/lib-stub/blocker.pyi:2: error: invalid syntax
+<ROOT>/test-data/unit/lib-stub/blocker.pyi:2: error: Simple statements must be separated by newlines or semicolons
+==
+a.py:1: error: "int" not callable
+[out version==3.10.0]
+==
+<ROOT>/test-data/unit/lib-stub/blocker.pyi:2: error: Simple statements must be separated by newlines or semicolons
 ==
 a.py:1: error: "int" not callable
 
@@ -350,7 +396,7 @@ import blocker2
 1()
 [out]
 ==
-<ROOT>/test-data/unit/lib-stub/blocker2.pyi:2: error: 'continue' outside loop
+<ROOT>/test-data/unit/lib-stub/blocker2.pyi:2: error: "continue" outside loop
 ==
 a.py:1: error: "int" not callable
 
@@ -408,9 +454,16 @@ import sys
 [builtins fixtures/tuple.pyi]
 [out]
 ==
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
-<ROOT>/test-data/unit/lib-stub/blocker.pyi:2: error: invalid syntax
+<ROOT>/test-data/unit/lib-stub/blocker.pyi:2: error: Simple statements must be separated by newlines or semicolons
+==
+a.py:2: error: "int" not callable
+[out version==3.10.0]
+==
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+<ROOT>/test-data/unit/lib-stub/blocker.pyi:2: error: Simple statements must be separated by newlines or semicolons
 ==
 a.py:2: error: "int" not callable
 
@@ -427,12 +480,17 @@ x = 1
 def f() -> int:
     return 0
 [out]
-a.py:1: error: invalid syntax
+a.py:1: error: Simple statements must be separated by newlines or semicolons
+==
+b.py:2: error: Incompatible return value type (got "str", expected "int")
+==
+[out version==3.10.0]
+a.py:1: error: Simple statements must be separated by newlines or semicolons
 ==
 b.py:2: error: Incompatible return value type (got "str", expected "int")
 ==
 
-[case testDecodeErrorBlocker-posix]
+[case testDecodeErrorNonBlocker1-posix]
 import a
 a.f(1)
 [file a.py]
@@ -444,11 +502,11 @@ def f(x: int) -> None: ...
 def f(x: str) -> None: ...
 [out]
 ==
-mypy: can't decode file 'tmp/a.py': 'ascii' codec can't decode byte 0xc3 in position 16: ordinal not in range(128)
+main:2: error: Module has no attribute "f"
 ==
 main:2: error: Argument 1 to "f" has incompatible type "int"; expected "str"
 
-[case testDecodeErrorBlocker-windows]
+[case testDecodeErrorNonBlocker2-windows]
 import a
 a.f(1)
 [file a.py]
@@ -460,31 +518,11 @@ def f(x: int) -> None: ...
 def f(x: str) -> None: ...
 [out]
 ==
-mypy: can't decode file 'tmp/a.py': 'ascii' codec can't decode byte 0xc3 in position 17: ordinal not in range(128)
+main:2: error: Module has no attribute "f"
 ==
 main:2: error: Argument 1 to "f" has incompatible type "int"; expected "str"
 
-[case testDecodeErrorBlocker_python2-only_when_nocache]
-# flags: --py2
-import a
-a.f(1)
-[file a.py]
-def f(x):
-    # type: (int) -> None
-    pass
-[file a.py.2]
-ä = 1
-[file a.py.3]
-def f(x):
-    # type: (str) -> None
-    pass
-[out]
-==
-mypy: can't decode file 'tmp/a.py': 'ascii' codec can't decode byte 0xc3 in position 0: ordinal not in range(128)
-==
-main:3: error: Argument 1 to "f" has incompatible type "int"; expected "str"
-
-[case testDecodeErrorBlockerOnInitialRun-posix]
+[case testDecodeErrorNonBlockerOnInitialRun-posix]
 # Note that there's no test variant for Windows, since the above Windows test case is good enough.
 import a
 a.f(1)
@@ -494,6 +532,6 @@ a.f(1)
 [file a.py.2]
 def f(x: str) -> None: ...
 [out]
-mypy: can't decode file 'tmp/a.py': 'ascii' codec can't decode byte 0xc3 in position 16: ordinal not in range(128)
+main:3: error: Module has no attribute "f"
 ==
 main:3: error: Argument 1 to "f" has incompatible type "int"; expected "str"
